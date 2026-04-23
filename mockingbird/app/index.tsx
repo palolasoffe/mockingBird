@@ -2,93 +2,147 @@ import { useEffect, useRef, useState } from "react";
 import { Dimensions, Text, TouchableWithoutFeedback, View } from "react-native";
 
 export default function GameScreen() {
+  const SCREEN_HEIGHT = Dimensions.get("window").height;
+
+  const [birdY, setBirdY] = useState(300);
+  const [pipes, setPipes] = useState([{ x: 400, gapY: 200 }]);
+  const [gameOver, setGameOver] = useState(false);
+  const [gameRunning, setGameRunning] = useState(false);
+  
+  const birdYRef = useRef(300);
+  const pipesRef = useRef([{ x: 400, gapY: 200 }]);
+  const velocity = useRef(0);
+  const frameRef = useRef<number | null>(null);
+  const gameRunningRef = useRef(false);
+  const gameOverRef = useRef(false);
+
+  /*
   const [birdY, setBirdY] = useState(300);
   const [pipes, setPipes] = useState([{ x: 400, gapY: 200 }]);
   const velocity = useRef(0);
   const birdYRef = useRef(300);
   const pipesRef = useRef([{ x: 400, gapY: 200 }]);
   const gameOverRef = useRef(false);
+  */
 
-  useEffect(() => {
-    let frame: number;
-    const SCREEN_HEIGHT = Dimensions.get("window").height;
+  const startGame = () => {
+    setGameOver(false);
+    setGameRunning(true);
 
-    const loop = () => {
-      if (gameOverRef.current) return;
-      velocity.current += 0.5;
+    gameRunningRef.current = true;
+    gameOverRef.current = false;
 
-      setBirdY((y) => {
-        let newY = y + velocity.current;
-        birdYRef.current = newY;
+    birdYRef.current = 300;
+    pipesRef.current = [{ x: 400, gapY: 200 }];
+    velocity.current = 0;
 
-        // yläreuna
-        if (newY < 0) {
-          newY = 0;
-          velocity.current = 0;
-        }
+    setBirdY(300);
+    setPipes([{ x: 400, gapY: 200 }]);
 
-        // alareuna
-        if (newY > SCREEN_HEIGHT - 40) {
-          newY = SCREEN_HEIGHT - 40;
-          velocity.current = 0;
+    frameRef.current = requestAnimationFrame(loop);
+  };
 
-          console.log("GAME OVER");
-          gameOverRef.current = true;
-        }
+  const endGame = () => {
+    setGameOver(true);
+    setGameRunning(false);
 
-        return newY;
+    gameRunningRef.current = false;
+    gameOverRef.current = true;
+
+    if (frameRef.current) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+  };
+
+  const resetGame = () => {
+    startGame();
+  };
+
+  const loop = () => {
+    if (!gameRunningRef.current || gameOverRef.current) return;
+
+    velocity.current += 0.5;
+
+    // bird
+    let newY = birdYRef.current + velocity.current;
+
+    if (newY < 0) {
+      newY = 0;
+      velocity.current = 0;
+    }
+
+    if (newY > SCREEN_HEIGHT - 40) {
+      newY = SCREEN_HEIGHT - 40;
+      velocity.current = 0;
+      endGame();
+    }
+
+    birdYRef.current = newY;
+    setBirdY(newY);
+
+    // pipes
+    const updatedPipes = pipesRef.current.map((pipe) => ({
+      ...pipe,
+      x: pipe.x - 3,
+    }));
+
+    // spawn new pipe
+    if (updatedPipes[0].x < -60) {
+      updatedPipes.shift();
+      updatedPipes.push({
+        x: 400,
+        gapY: Math.random() * 300 + 100,
       });
+    }
 
-      setPipes((prev) => {
-        let updated = prev.map((pipe) => ({
-          ...pipe,
-          x: pipe.x - 3,
-        }));
+    pipesRef.current = updatedPipes;
+    setPipes(updatedPipes);
 
-        if (updated[0].x < -60) {
-          updated.shift();
-          updated.push({
-            x: 400,
-            gapY: Math.random() * 300 + 100,
-          });
+    // 💥 collision check
+    checkCollision();
+
+    frameRef.current = requestAnimationFrame(loop);
+  };
+
+  const checkCollision = () => {
+    const birdX = 100;
+    const birdSize = 40;
+
+    pipesRef.current.forEach(pipe => {
+      const pipeWidth = 60;
+      const gapSize = 150;
+
+      const withinX =
+        birdX + birdSize > pipe.x &&
+        birdX < pipe.x + pipeWidth;
+
+      const hitsTop = birdYRef.current < pipe.gapY;
+      const hitsBottom =
+        birdYRef.current + birdSize > pipe.gapY + gapSize;
+
+      if (withinX && (hitsTop || hitsBottom)) {
+        if (!gameOverRef.current) {
+          endGame();
         }
-        
-        pipesRef.current = updated;
-        return updated;
-      });
-
-      const birdX = 100;
-      const birdSize = 40;
-
-      pipesRef.current.forEach(pipe => {
-        const pipeWidth = 60;
-        const gapSize = 150;
-
-        const withinX =
-          birdX + birdSize > pipe.x &&
-          birdX < pipe.x + pipeWidth;
-
-        const hitsTop = birdYRef.current < pipe.gapY;
-        const hitsBottom = birdYRef.current + birdSize > pipe.gapY + gapSize;
-
-        if (withinX && (hitsTop || hitsBottom)) {
-          console.log("HIT PIPE → GAME OVER");
-          gameOverRef.current = true;
-        }
-      });
-
-      // 👇 TÄRKEIN RIVI
-      frame = requestAnimationFrame(loop);
-    };
-
-    loop();
-
-    return () => cancelAnimationFrame(frame);
-  }, []);
+      }
+    });
+  };
 
   const flap = () => {
+    if (!gameRunning || gameOver) return;
     velocity.current = -8;
   };
+
+  useEffect(() => {
+    startGame();
+
+    return () => {
+      if (frameRef.current) {
+        cancelAnimationFrame(frameRef.current);
+      }
+    };
+  }, []);
 
   return (
     <TouchableWithoutFeedback onPress={flap}>
@@ -136,6 +190,42 @@ export default function GameScreen() {
         <Text style={{ textAlign: "center", marginTop: 50 }}>
           MockingBird 🐦
         </Text>
+        {gameOver && (
+          <View
+            style={{
+              position: "absolute",
+              top: 250,
+              alignSelf: "center",
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 40,
+                fontWeight: "bold",
+                color: "white",
+                marginBottom: 20,
+              }}
+            >
+              GAME OVER
+            </Text>
+
+            <TouchableWithoutFeedback onPress={resetGame}>
+              <View
+                style={{
+                  backgroundColor: "white",
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                }}
+              >
+                <Text style={{ fontSize: 18, fontWeight: "bold" }}>
+                  Restart
+                </Text>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        )}
       </View>
     </TouchableWithoutFeedback>
   );
