@@ -5,16 +5,21 @@ export default function GameScreen() {
   const [birdY, setBirdY] = useState(300);
   const [pipes, setPipes] = useState([{ x: 400, gapY: 200 }]);
   const velocity = useRef(0);
+  const birdYRef = useRef(300);
+  const pipesRef = useRef([{ x: 400, gapY: 200 }]);
+  const gameOverRef = useRef(false);
 
   useEffect(() => {
     let frame: number;
     const SCREEN_HEIGHT = Dimensions.get("window").height;
 
     const loop = () => {
+      if (gameOverRef.current) return;
       velocity.current += 0.5;
 
       setBirdY((y) => {
         let newY = y + velocity.current;
+        birdYRef.current = newY;
 
         // yläreuna
         if (newY < 0) {
@@ -28,6 +33,7 @@ export default function GameScreen() {
           velocity.current = 0;
 
           console.log("GAME OVER");
+          gameOverRef.current = true;
         }
 
         return newY;
@@ -46,8 +52,29 @@ export default function GameScreen() {
             gapY: Math.random() * 300 + 100,
           });
         }
-
+        
+        pipesRef.current = updated;
         return updated;
+      });
+
+      const birdX = 100;
+      const birdSize = 40;
+
+      pipesRef.current.forEach(pipe => {
+        const pipeWidth = 60;
+        const gapSize = 150;
+
+        const withinX =
+          birdX + birdSize > pipe.x &&
+          birdX < pipe.x + pipeWidth;
+
+        const hitsTop = birdYRef.current < pipe.gapY;
+        const hitsBottom = birdYRef.current + birdSize > pipe.gapY + gapSize;
+
+        if (withinX && (hitsTop || hitsBottom)) {
+          console.log("HIT PIPE → GAME OVER");
+          gameOverRef.current = true;
+        }
       });
 
       // 👇 TÄRKEIN RIVI
