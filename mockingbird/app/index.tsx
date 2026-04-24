@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Dimensions, Text, TouchableWithoutFeedback, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function GameScreen() {
   const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -9,6 +10,7 @@ export default function GameScreen() {
   const [gameOver, setGameOver] = useState(false);
   const [gameRunning, setGameRunning] = useState(false);
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
   
   const passedPipes = useRef(new Set());
   const pipeId = useRef(0);
@@ -45,12 +47,21 @@ export default function GameScreen() {
     frameRef.current = requestAnimationFrame(loop);
   };
 
-  const endGame = () => {
+  const endGame = async () => {
     setGameOver(true);
     setGameRunning(false);
 
     gameRunningRef.current = false;
     gameOverRef.current = true;
+
+    if (score > highScore) {
+      setHighScore(score);
+      try {
+        await AsyncStorage.setItem("HIGH_SCORE", String(score));
+      } catch (e) {
+        console.log("Failed to save high score");
+      }
+    }
 
     if (frameRef.current) {
       cancelAnimationFrame(frameRef.current);
@@ -144,12 +155,24 @@ export default function GameScreen() {
     });
   };
 
+  const loadHighScore = async () => {
+    try {
+      const saved = await AsyncStorage.getItem("HIGH_SCORE");
+      if (saved !== null) {
+        setHighScore(Number(saved));
+      }
+    } catch (e) {
+      console.log("Failed to load high score");
+    }
+  };
+
   const flap = () => {
     if (!gameRunning || gameOver) return;
     velocity.current = -8;
   };
 
   useEffect(() => {
+    loadHighScore();
     startGame();
 
     return () => {
@@ -235,6 +258,9 @@ export default function GameScreen() {
               }}
             >
               GAME OVER
+            </Text>
+            <Text style={{ fontSize: 20, color: "white" }}>
+              Best: {highScore}
             </Text>
 
             <TouchableWithoutFeedback onPress={resetGame}>
