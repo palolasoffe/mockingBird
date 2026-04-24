@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Dimensions, Text, TouchableWithoutFeedback, View } from "react-native";
+import { Dimensions, Text, TouchableWithoutFeedback, View, ScrollView } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function GameScreen() {
@@ -11,6 +11,7 @@ export default function GameScreen() {
   const [gameRunning, setGameRunning] = useState(false);
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
+  const [leaderboard, setLeaderboard] = useState([]);
   
   const passedPipes = useRef(new Set());
   const pipeId = useRef(0);
@@ -63,6 +64,8 @@ export default function GameScreen() {
       }
     }
 
+    saveScore();
+
     if (frameRef.current) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
@@ -78,7 +81,7 @@ export default function GameScreen() {
   };
 
   const loop = () => {
-    if (!gameRunningRef.current || gameOverRef.current) return;
+    if (!gameRunningRef.current) return;
 
     velocity.current += 0.5;
 
@@ -166,6 +169,34 @@ export default function GameScreen() {
     }
   };
 
+  const loadScores = async () => {
+    try {
+      const saved = await AsyncStorage.getItem("SCORES");
+      if (saved) {
+        setLeaderboard(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.log("Error loading scores");
+    }
+  };
+
+  const saveScore = async () => {
+    try {
+      const saved = await AsyncStorage.getItem("SCORES");
+      const scores = saved ? JSON.parse(saved) : [];
+
+      scores.push(score);
+
+      scores.sort((a: number, b: number) => b - a); // suurin ensin
+
+      const top10 = scores.slice(0, 10);
+
+      await AsyncStorage.setItem("SCORES", JSON.stringify(top10));
+    } catch (e) {
+      console.log("Error saving score");
+    }
+  };
+
   const flap = () => {
     if (!gameRunning || gameOver) return;
     velocity.current = -8;
@@ -173,6 +204,7 @@ export default function GameScreen() {
 
   useEffect(() => {
     loadHighScore();
+    loadScores();
     startGame();
 
     return () => {
@@ -262,7 +294,13 @@ export default function GameScreen() {
             <Text style={{ fontSize: 20, color: "white" }}>
               Best: {highScore}
             </Text>
-
+            <ScrollView style={{ maxHeight: 100 }}>
+              {leaderboard.map((s, i) => (
+                <Text key={i} style={{ color: "white", fontSize: 18 }}>
+                  {i + 1}. {s}
+                </Text>
+              ))}
+            </ScrollView>
             <TouchableWithoutFeedback onPress={resetGame}>
               <View
                 style={{
