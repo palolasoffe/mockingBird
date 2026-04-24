@@ -8,9 +8,12 @@ export default function GameScreen() {
   const [pipes, setPipes] = useState([{ x: 400, gapY: 200 }]);
   const [gameOver, setGameOver] = useState(false);
   const [gameRunning, setGameRunning] = useState(false);
+  const [score, setScore] = useState(0);
   
+  const passedPipes = useRef(new Set());
+  const pipeId = useRef(0);
   const birdYRef = useRef(300);
-  const pipesRef = useRef([{ x: 400, gapY: 200 }]);
+  const pipesRef = useRef([{ id: 0, x: 400, gapY: 200 }]);
   const velocity = useRef(0);
   const frameRef = useRef<number | null>(null);
   const gameRunningRef = useRef(false);
@@ -33,7 +36,7 @@ export default function GameScreen() {
     gameOverRef.current = false;
 
     birdYRef.current = 300;
-    pipesRef.current = [{ x: 400, gapY: 200 }];
+    pipesRef.current = [{ id: 0, x: 400, gapY: 200 }];
     velocity.current = 0;
 
     setBirdY(300);
@@ -56,6 +59,10 @@ export default function GameScreen() {
   };
 
   const resetGame = () => {
+    passedPipes.current.clear();
+    pipeId.current = 1;
+    setScore(0);
+    
     startGame();
   };
 
@@ -91,6 +98,7 @@ export default function GameScreen() {
     if (updatedPipes[0].x < -60) {
       updatedPipes.shift();
       updatedPipes.push({
+        id: pipeId.current++,
         x: 400,
         gapY: Math.random() * 300 + 100,
       });
@@ -101,6 +109,13 @@ export default function GameScreen() {
 
     // 💥 collision check
     checkCollision();
+
+    updatedPipes.forEach((pipe) => {
+      if (pipe.x + 60 < 100 && !passedPipes.current.has(pipe.id)) {
+        passedPipes.current.add(pipe.id);
+        setScore(s => s + 1);
+      }
+    });
 
     frameRef.current = requestAnimationFrame(loop);
   };
@@ -189,6 +204,18 @@ export default function GameScreen() {
         ))}
         <Text style={{ textAlign: "center", marginTop: 50 }}>
           MockingBird 🐦
+        </Text>
+        <Text
+          style={{
+            position: "absolute",
+            top: 80,
+            alignSelf: "center",
+            fontSize: 40,
+            fontWeight: "bold",
+            color: "white",
+          }}
+        >
+          {score}
         </Text>
         {gameOver && (
           <View
