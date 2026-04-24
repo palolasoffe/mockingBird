@@ -72,6 +72,7 @@ export default function GameScreen() {
     }
   };
 
+  // Restart game after losing
   const resetGame = () => {
     passedPipes.current.clear();
     pipeId.current = 1;
@@ -80,6 +81,7 @@ export default function GameScreen() {
     startGame();
   };
 
+  // Game loop
   const loop = () => {
     if (!gameRunningRef.current) return;
 
@@ -124,6 +126,7 @@ export default function GameScreen() {
     // 💥 collision check
     checkCollision();
 
+    // Score count for passed pipe gap
     updatedPipes.forEach((pipe) => {
       if (pipe.x + 60 < 100 && !passedPipes.current.has(pipe.id)) {
         passedPipes.current.add(pipe.id);
@@ -134,6 +137,7 @@ export default function GameScreen() {
     frameRef.current = requestAnimationFrame(loop);
   };
 
+  // Collision with pipe, ground or ceiling
   const checkCollision = () => {
     const birdX = 100;
     const birdSize = 40;
@@ -150,6 +154,7 @@ export default function GameScreen() {
       const hitsBottom =
         birdYRef.current + birdSize > pipe.gapY + gapSize;
 
+      // End the round if a collision has occurred
       if (withinX && (hitsTop || hitsBottom)) {
         if (!gameOverRef.current) {
           endGame();
@@ -158,6 +163,7 @@ export default function GameScreen() {
     });
   };
 
+  // Load personal best
   const loadHighScore = async () => {
     try {
       const saved = await AsyncStorage.getItem("HIGH_SCORE");
@@ -169,6 +175,7 @@ export default function GameScreen() {
     }
   };
 
+  // Load leaderboard scores
   const loadScores = async () => {
     try {
       const saved = await AsyncStorage.getItem("SCORES");
@@ -180,6 +187,7 @@ export default function GameScreen() {
     }
   };
 
+  // Save game score to leaderboard scores
   const saveScore = async () => {
     try {
       const saved = await AsyncStorage.getItem("SCORES");
