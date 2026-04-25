@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { Audio } from "expo-av";
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from "expo-av";
 import { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -113,18 +113,42 @@ export const useGameEngine = () => {
     const keys = ['day', 'sunset', 'night', 'magic', 'sea'];
     const bracket = Math.floor(newScore / 10) % keys.length;
     const nextKey = keys[bracket];
+    
     if (currentMusicKey.current !== nextKey) {
-      if (currentMusicKey.current) await musicTracks.current[currentMusicKey.current]?.stopAsync();
-      const nextTrack = musicTracks.current[nextKey];
-      if (nextTrack) { await nextTrack.playAsync(); currentMusicKey.current = nextKey; }
+      try {
+        if (currentMusicKey.current) {
+          const currentTrack = musicTracks.current[currentMusicKey.current];
+          if (currentTrack) await currentTrack.stopAsync();
+        }
+        
+        const nextTrack = musicTracks.current[nextKey];
+        if (nextTrack) {
+          await nextTrack.playAsync();
+          currentMusicKey.current = nextKey;
+        } else {
+          console.log(`Track ${nextKey} not loaded yet, retrying in 500ms...`);
+          setTimeout(() => updateMusic(newScore), 500);
+        }
+      } catch (e) {
+        console.log("Error updating music", e);
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (gameRunning && !gameOver) updateMusic(score);
-    else if (currentMusicKey.current) {
-      musicTracks.current[currentMusicKey.current]?.stopAsync();
-      currentMusicKey.current = null;
+    if (gameRunning && !gameOver) {
+      updateMusic(score);
+    } else if (currentMusicKey.current) {
+      const stopMusic = async () => {
+        try {
+          const currentTrack = musicTracks.current[currentMusicKey.current!];
+          if (currentTrack) await currentTrack.stopAsync();
+          currentMusicKey.current = null;
+        } catch (e) {
+          console.log("Error stopping music", e);
+        }
+      };
+      stopMusic();
     }
   }, [gameRunning, gameOver, score, updateMusic]);
 
@@ -132,13 +156,21 @@ export const useGameEngine = () => {
     setGameOver(true); setGameRunning(false); isPlaying.value = false; isDead.value = true;
     if (timerRef.current) clearTimeout(timerRef.current);
     triggerHaptic('error'); playSound(crashSound);
+    
     const updateStorage = async () => {
-      const savedScores = await AsyncStorage.getItem("SCORES");
-      let scores = savedScores ? JSON.parse(savedScores) : [];
-      scores.push(finalScore); scores.sort((a: number, b: number) => b - a);
-      const top10 = scores.slice(0, 10); setLeaderboard(top10);
-      await AsyncStorage.setItem("SCORES", JSON.stringify(top10));
-      if (finalScore > highScore) { setHighScore(finalScore); await AsyncStorage.setItem("HIGH_SCORE", String(finalScore)); }
+      try {
+        const savedScores = await AsyncStorage.getItem("SCORES");
+        let scores = savedScores ? JSON.parse(savedScores) : [];
+        scores.push(finalScore); scores.sort((a: number, b: number) => b - a);
+        const top10 = scores.slice(0, 10); setLeaderboard(top10);
+        await AsyncStorage.setItem("SCORES", JSON.stringify(top10));
+        if (finalScore > highScore) { 
+          setHighScore(finalScore); 
+          await AsyncStorage.setItem("HIGH_SCORE", String(finalScore)); 
+        }
+      } catch (e) {
+        console.warn("AsyncStorage not available or failed:", e);
+      }
     };
     updateStorage();
   }, [highScore]);
@@ -244,28 +276,75 @@ export const useGameEngine = () => {
 
   useEffect(() => {
     const init = async () => {
-      const saved = await AsyncStorage.getItem("HIGH_SCORE");
-      const savedScores = await AsyncStorage.getItem("SCORES");
-      if (saved) setHighScore(Number(saved));
-      if (savedScores) setLeaderboard(JSON.parse(savedScores));
-      const { sound: jSound } = await Audio.Sound.createAsync(require("@/assets/audio/jump.mp3"));
-      const { sound: cSound } = await Audio.Sound.createAsync(require("@/assets/audio/coin.mp3"));
-      const { sound: crSound } = await Audio.Sound.createAsync(require("@/assets/audio/crash.mp3"));
-      powerUpSound.current = cSound; await cSound.setVolumeAsync(0.4);
-      jumpSound.current = jSound; coinSound.current = cSound; crashSound.current = crSound;
-      const tracks = {
-        day: (await Audio.Sound.createAsync(require("@/assets/audio/day.mp3"), { isLooping: true, volume: 0.3 })).sound,
-        sunset: (await Audio.Sound.createAsync(require("@/assets/audio/sunset.mp3"), { isLooping: true, volume: 0.3 })).sound,
-        night: (await Audio.Sound.createAsync(require("@/assets/audio/night.mp3"), { isLooping: true, volume: 0.3 })).sound,
-        magic: (await Audio.Sound.createAsync(require("@/assets/audio/magic_purple.mp3"), { isLooping: true, volume: 0.3 })).sound,
-        sea: (await Audio.Sound.createAsync(require("@/assets/audio/deep_sea.mp3"), { isLooping: true, volume: 0.3 })).sound,
-      };
-      musicTracks.current = tracks;
+      console.log("Initializing Game Engine...");
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldRouteAudioToReceiverIfInverted: false,
+          interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+          interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+        });
+        console.log("Audio mode set successfully");
+      } catch (error) {
+        console.error("Error setting audio mode:", error);
+      }
+
+      // Load Storage (Non-blocking)
+      try {
+        const saved = await AsyncStorage.getItem("HIGH_SCORE");
+        const savedScores = await AsyncStorage.getItem("SCORES");
+        if (saved) setHighScore(Number(saved));
+        if (savedScores) setLeaderboard(JSON.parse(savedScores));
+        console.log("Storage loaded successfully");
+      } catch (e) {
+        console.warn("AsyncStorage failed during init:", e);
+      }
+      
+      // Load Sounds (Critical)
+      try {
+        console.log("Loading sound effects...");
+        const { sound: jSound } = await Audio.Sound.createAsync(require("@/assets/audio/jump.mp3"));
+        const { sound: cSound } = await Audio.Sound.createAsync(require("@/assets/audio/coin.mp3"));
+        const { sound: crSound } = await Audio.Sound.createAsync(require("@/assets/audio/crash.mp3"));
+        
+        powerUpSound.current = cSound; 
+        await cSound.setVolumeAsync(0.4);
+        
+        jumpSound.current = jSound; 
+        coinSound.current = cSound; 
+        crashSound.current = crSound;
+        console.log("Sound effects loaded");
+
+        console.log("Loading music tracks...");
+        const tracks = {
+          day: (await Audio.Sound.createAsync(require("@/assets/audio/day.mp3"), { isLooping: true, volume: 0.3 })).sound,
+          sunset: (await Audio.Sound.createAsync(require("@/assets/audio/sunset.mp3"), { isLooping: true, volume: 0.3 })).sound,
+          night: (await Audio.Sound.createAsync(require("@/assets/audio/night.mp3"), { isLooping: true, volume: 0.3 })).sound,
+          magic: (await Audio.Sound.createAsync(require("@/assets/audio/magic_purple.mp3"), { isLooping: true, volume: 0.3 })).sound,
+          sea: (await Audio.Sound.createAsync(require("@/assets/audio/deep_sea.mp3"), { isLooping: true, volume: 0.3 })).sound,
+        };
+        musicTracks.current = tracks;
+        console.log("Music tracks loaded");
+      } catch (error) {
+        console.error("Critical error loading audio assets:", error);
+      }
     };
     init();
     return () => {
-      jumpSound.current?.unloadAsync(); coinSound.current?.unloadAsync(); crashSound.current?.unloadAsync();
-      Object.values(musicTracks.current).forEach(t => t?.unloadAsync());
+      const cleanup = async () => {
+        try {
+          await jumpSound.current?.unloadAsync(); 
+          await coinSound.current?.unloadAsync(); 
+          await crashSound.current?.unloadAsync();
+          for (const t of Object.values(musicTracks.current)) {
+            await t?.unloadAsync();
+          }
+        } catch (e) {
+          console.log("Error cleaning up audio", e);
+        }
+      };
+      cleanup();
     };
   }, []);
 

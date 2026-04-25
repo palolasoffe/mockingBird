@@ -8,9 +8,10 @@ import Animated, {
   Extrapolation,
   withRepeat,
   interpolateColor,
-  useDerivedValue
+  useDerivedValue,
+  runOnJS
 } from "react-native-reanimated";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { GAME_CONFIG } from "@/constants/game-config";
 import { useGameEngine, PowerUpType } from "@/hooks/use-game-engine";
 
@@ -41,6 +42,7 @@ const PipeSet = ({ x, gapY }: { x: Animated.SharedValue<number>, gapY: Animated.
 
 const PowerUpCollectible = ({ x, y, type }: { x: Animated.SharedValue<number>, y: Animated.SharedValue<number>, type: Animated.SharedValue<PowerUpType> }) => {
   const bobbing = useSharedValue(0);
+  const [localType, setLocalType] = useState<PowerUpType>('none');
 
   useEffect(() => {
     bobbing.value = withRepeat(
@@ -49,6 +51,14 @@ const PowerUpCollectible = ({ x, y, type }: { x: Animated.SharedValue<number>, y
       true
     );
   }, []);
+
+  // Sync shared value type to local state for conditional rendering
+  useDerivedValue(() => {
+    if (type.value !== localType) {
+      runOnJS(setLocalType)(type.value);
+    }
+    return type.value;
+  });
 
   const style = useAnimatedStyle(() => ({
     transform: [
@@ -69,14 +79,14 @@ const PowerUpCollectible = ({ x, y, type }: { x: Animated.SharedValue<number>, y
       alignItems: 'center'
     }, style]}>
        {/* Shield Visual (Blue Crystal) */}
-       {type.value === 'shield' && (
+       {localType === 'shield' && (
          <View style={{ width: '100%', height: '100%', backgroundColor: '#3498db', borderWidth: 3, borderColor: 'white', borderRadius: 4, shadowColor: '#3498db', shadowRadius: 10, shadowOpacity: 0.8 }}>
             <View style={{ position: 'absolute', top: 4, left: 4, width: 6, height: 6, backgroundColor: 'white', borderRadius: 2, opacity: 0.6 }} />
          </View>
        )}
 
        {/* Shrink Visual (Purple Orb) */}
-       {type.value === 'shrink' && (
+       {localType === 'shrink' && (
          <View style={{ width: '100%', height: '100%', backgroundColor: '#9b59b6', borderWidth: 3, borderColor: 'white', borderRadius: 20, shadowColor: '#9b59b6', shadowRadius: 10, shadowOpacity: 0.8 }}>
             <View style={{ position: 'absolute', top: '25%', left: '25%', width: '50%', height: '50%', backgroundColor: 'white', borderRadius: 10, opacity: 0.3 }} />
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
