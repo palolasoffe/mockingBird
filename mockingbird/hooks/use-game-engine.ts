@@ -16,6 +16,7 @@ export const useGameEngine = () => {
   const [highScore, setHighScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [gameRunning, setGameRunning] = useState(false);
+  const [showMenu, setShowMenu] = useState(true);
   const [leaderboard, setLeaderboard] = useState<number[]>([]);
 
   // Sound Refs
@@ -155,12 +156,32 @@ export const useGameEngine = () => {
     });
   });
 
+  const startFromMenu = useCallback(() => {
+    setShowMenu(false);
+  }, []);
+
+  const returnToMenu = useCallback(() => {
+    setShowMenu(true);
+    setGameOver(false);
+    setGameRunning(false);
+    isDead.value = false;
+    isPlaying.value = false;
+    birdY.value = GAME_CONFIG.INITIAL_BIRD_Y;
+    birdVelocity.value = 0;
+    setScore(0);
+  }, []);
+
   const flap = useCallback(() => {
     if (isDead.value) {
       resetGame();
       return;
     }
     
+    if (showMenu) {
+      startFromMenu();
+      return;
+    }
+
     if (!isPlaying.value) {
       isPlaying.value = true;
       setGameRunning(true);
@@ -170,7 +191,7 @@ export const useGameEngine = () => {
     birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH;
     triggerHaptic('light');
     playSound(jumpSound);
-  }, [gameOver, gameRunning]);
+  }, [gameOver, gameRunning, showMenu, startFromMenu]);
 
   const resetGame = useCallback(() => {
     birdY.value = GAME_CONFIG.INITIAL_BIRD_Y;
@@ -233,6 +254,7 @@ export const useGameEngine = () => {
     highScore,
     gameOver,
     gameRunning,
+    showMenu,
     leaderboard,
     birdY,
     birdVelocity,
@@ -245,6 +267,8 @@ export const useGameEngine = () => {
     groundX,
     cloudX,
     flap,
-    resetGame
+    resetGame,
+    startFromMenu,
+    returnToMenu
   };
 };

@@ -5,8 +5,10 @@ import Animated, {
   withTiming,
   useSharedValue,
   interpolate,
-  Extrapolation
+  Extrapolation,
+  withRepeat
 } from "react-native-reanimated";
+import { useEffect } from "react";
 import { GAME_CONFIG } from "@/constants/game-config";
 import { useGameEngine } from "@/hooks/use-game-engine";
 
@@ -90,6 +92,7 @@ export default function GameScreen() {
     highScore,
     gameOver,
     gameRunning,
+    showMenu,
     leaderboard,
     birdY,
     birdVelocity,
@@ -102,9 +105,20 @@ export default function GameScreen() {
     groundX,
     cloudX,
     flap,
+    resetGame,
+    returnToMenu,
   } = useGameEngine();
 
   const wingTranslation = useSharedValue(0);
+  const menuFloatingY = useSharedValue(0);
+
+  useEffect(() => {
+    menuFloatingY.value = withRepeat(
+      withTiming(10, { duration: 1500 }),
+      -1,
+      true
+    );
+  }, []);
 
   const birdStyle = useAnimatedStyle(() => {
     const rotation = interpolate(
@@ -124,6 +138,10 @@ export default function GameScreen() {
 
   const wingStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: wingTranslation.value }]
+  }));
+
+  const menuStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: menuFloatingY.value }]
   }));
 
   const handlePress = () => {
@@ -175,16 +193,31 @@ export default function GameScreen() {
           <Animated.View style={[{ position: 'absolute', top: 14, left: -4, width: 14, height: 10, backgroundColor: 'white', borderRadius: 2, borderWidth: 3, borderColor: "#2d3436", zIndex: 11 }, wingStyle]} />
         </Animated.View>
 
-        {/* HUD */}
-        <View style={{ marginTop: 80, alignItems: 'center' }}>
-          <Text style={{ fontSize: 80, fontWeight: "bold", color: "white", textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 4 }}>
-            {score}
-          </Text>
-        </View>
+        {/* HUD - Hide when menu OR game over is showing */}
+        {!showMenu && !gameOver && (
+          <View style={{ marginTop: 80, alignItems: 'center' }}>
+            <Text style={{ fontSize: 80, fontWeight: "bold", color: "white", textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 4 }}>
+              {score}
+            </Text>
+          </View>
+        )}
 
-        {!gameRunning && !gameOver && (
+        {/* Main Menu */}
+        {showMenu && (
+           <Animated.View style={[{ position: 'absolute', top: '25%', alignSelf: 'center', alignItems: 'center' }, menuStyle]}>
+             <Text style={{ fontSize: 48, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowRadius: 10 }}>MOCKINGBIRD</Text>
+             <View style={{ backgroundColor: "#ff5e5e", paddingHorizontal: 40, paddingVertical: 15, borderRadius: 10, borderWidth: 4, borderColor: '#2d3436', marginTop: 40 }}>
+                <Text style={{ fontSize: 24, fontWeight: "900", color: "white" }}>START</Text>
+             </View>
+             <View style={{ backgroundColor: 'rgba(0,0,0,0.1)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, marginTop: 30 }}>
+                <Text style={{ color: 'white', fontWeight: 'bold' }}>BEST: {highScore}</Text>
+             </View>
+           </Animated.View>
+        )}
+
+        {!gameRunning && !gameOver && !showMenu && (
            <View style={{ position: 'absolute', top: '50%', alignSelf: 'center', alignItems: 'center' }}>
-             <Text style={{ fontSize: 20, color: 'white', fontWeight: 'bold', letterSpacing: 1 }}>TAP TO START</Text>
+             <Text style={{ fontSize: 20, color: 'white', fontWeight: 'bold', letterSpacing: 1 }}>TAP TO FLAP</Text>
            </View>
         )}
 
@@ -195,8 +228,19 @@ export default function GameScreen() {
                <Text style={{ fontSize: 40, fontWeight: "bold", color: "#2c3e50" }}>{score}</Text>
                <Text style={{ fontSize: 14, color: "#95a5a6", marginTop: 5 }}>BEST: {highScore}</Text>
             </View>
-            <View style={{ backgroundColor: "#e67e22", paddingHorizontal: 30, paddingVertical: 12, borderRadius: 4, borderWidth: 3, borderColor: '#566573' }}>
-              <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>RESTART</Text>
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableWithoutFeedback onPress={resetGame}>
+                <View style={{ backgroundColor: "#e67e22", paddingHorizontal: 25, paddingVertical: 12, borderRadius: 4, borderWidth: 3, borderColor: '#566573' }}>
+                  <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>RESTART</Text>
+                </View>
+              </TouchableWithoutFeedback>
+
+              <TouchableWithoutFeedback onPress={returnToMenu}>
+                <View style={{ backgroundColor: "#3498db", paddingHorizontal: 25, paddingVertical: 12, borderRadius: 4, borderWidth: 3, borderColor: '#566573' }}>
+                  <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>MENU</Text>
+                </View>
+              </TouchableWithoutFeedback>
             </View>
           </View>
         )}
