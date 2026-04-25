@@ -24,6 +24,16 @@ export const useGameEngine = () => {
   const coinSound = useRef<Audio.Sound | null>(null);
   const crashSound = useRef<Audio.Sound | null>(null);
 
+  // Music Refs
+  const musicTracks = useRef<{ [key: string]: Audio.Sound | null }>({
+    day: null,
+    sunset: null,
+    night: null,
+    magic: null,
+    sea: null,
+  });
+  const currentMusicKey = useRef<string | null>(null);
+
   // Engine Values (Physics)
   const birdY = useSharedValue(GAME_CONFIG.INITIAL_BIRD_Y);
   const birdVelocity = useSharedValue(0);
@@ -58,6 +68,40 @@ export const useGameEngine = () => {
       console.log("Error playing sound", e);
     }
   };
+
+  const updateMusic = useCallback(async (newScore: number) => {
+    const keys = ['day', 'sunset', 'night', 'magic', 'sea'];
+    const bracket = Math.floor(newScore / 10) % keys.length;
+    const nextKey = keys[bracket];
+
+    if (currentMusicKey.current !== nextKey) {
+      // Stop previous music
+      if (currentMusicKey.current) {
+        const prevTrack = musicTracks.current[currentMusicKey.current];
+        await prevTrack?.stopAsync();
+      }
+
+      // Start new music
+      const nextTrack = musicTracks.current[nextKey];
+      if (nextTrack) {
+        await nextTrack.playAsync();
+        currentMusicKey.current = nextKey;
+      }
+    }
+  }, []);
+
+  // Sync music with game state and score
+  useEffect(() => {
+    if (gameRunning && !gameOver) {
+      updateMusic(score);
+    } else {
+      // Stop music on game over or menu
+      if (currentMusicKey.current) {
+        musicTracks.current[currentMusicKey.current]?.stopAsync();
+        currentMusicKey.current = null;
+      }
+    }
+  }, [gameRunning, gameOver, score, updateMusic]);
 
   const triggerHaptic = (type: 'light' | 'medium' | 'heavy' | 'success' | 'error') => {
     switch(type) {
@@ -238,14 +282,26 @@ export const useGameEngine = () => {
       jumpSound.current = jSound;
       coinSound.current = cSound;
       crashSound.current = crSound;
+
+      // Load music tracks
+      const tracks = {
+        day: (await Audio.Sound.createAsync(require("@/assets/audio/day.mp3"), { isLooping: true, volume: 0.3 })).sound,
+        sunset: (await Audio.Sound.createAsync(require("@/assets/audio/sunset.mp3"), { isLooping: true, volume: 0.3 })).sound,
+        night: (await Audio.Sound.createAsync(require("@/assets/audio/night.mp3"), { isLooping: true, volume: 0.3 })).sound,
+        magic: (await Audio.Sound.createAsync(require("@/assets/audio/magic_purple.mp3"), { isLooping: true, volume: 0.3 })).sound,
+        sea: (await Audio.Sound.createAsync(require("@/assets/audio/deep_sea.mp3"), { isLooping: true, volume: 0.3 })).sound,
+      };
+
+      musicTracks.current = tracks;
     };
     init();
 
     return () => {
-      // Unload sounds
+      // Unload all
       jumpSound.current?.unloadAsync();
       coinSound.current?.unloadAsync();
       crashSound.current?.unloadAsync();
+      Object.values(musicTracks.current).forEach(t => t?.unloadAsync());
     };
   }, []);
 

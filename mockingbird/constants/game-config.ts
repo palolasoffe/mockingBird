@@ -23,6 +23,15 @@ export const GAME_CONFIG = {
 
   // Parallax Settings
   FLOOR_HEIGHT: 80,
-  GROUND_SPEED: 4.5,      // Matches pipe speed
-  CLOUD_SPEED: 1.5,       // Slower for depth
+  GROUND_SPEED: 4.5,
+  CLOUD_SPEED: 1.5,
+
+  // Environment Palettes (Changes every 10 points)
+  BACKGROUND_COLORS: [
+    "#4ec0ca", // 0-9: Day
+    "#ff9f43", // 10-19: Sunset
+    "#2c3e50", // 20-29: Night
+    "#8e44ad", // 30-39: Magic Purple
+    "#16a085", // 40-49: Deep Sea
+  ],
 };
