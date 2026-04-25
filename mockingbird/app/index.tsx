@@ -1,328 +1,230 @@
-import { useEffect, useRef, useState } from "react";
-import { Dimensions, Text, TouchableWithoutFeedback, View, ScrollView } from "react-native";
+import { useEffect, useState } from "react";
+import { Text, TouchableWithoutFeedback, View, ScrollView } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  useFrameCallback,
+  runOnJS 
+} from "react-native-reanimated";
+import { GAME_CONFIG } from "@/constants/game-config";
 
 export default function GameScreen() {
-  const SCREEN_HEIGHT = Dimensions.get("window").height;
-
-  const [birdY, setBirdY] = useState(300);
-  const [pipes, setPipes] = useState([{ x: 400, gapY: 200 }]);
-  const [gameOver, setGameOver] = useState(false);
-  const [gameRunning, setGameRunning] = useState(false);
+  // Game State (UI only)
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
-  const [leaderboard, setLeaderboard] = useState([]);
-  
-  const passedPipes = useRef(new Set());
-  const pipeId = useRef(0);
-  const birdYRef = useRef(300);
-  const pipesRef = useRef([{ id: 0, x: 400, gapY: 200 }]);
-  const velocity = useRef(0);
-  const frameRef = useRef<number | null>(null);
-  const gameRunningRef = useRef(false);
-  const gameOverRef = useRef(false);
+  const [gameOver, setGameOver] = useState(false);
+  const [gameRunning, setGameRunning] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<number[]>([]);
 
-  /*
-  const [birdY, setBirdY] = useState(300);
-  const [pipes, setPipes] = useState([{ x: 400, gapY: 200 }]);
-  const velocity = useRef(0);
-  const birdYRef = useRef(300);
-  const pipesRef = useRef([{ x: 400, gapY: 200 }]);
-  const gameOverRef = useRef(false);
-  */
+  // Engine Values (Physics) - Running on the UI Thread
+  const birdY = useSharedValue(GAME_CONFIG.INITIAL_BIRD_Y);
+  const birdVelocity = useSharedValue(0);
+  const pipesX = useSharedValue(GAME_CONFIG.PIPE_SPAWN_X);
+  const [pipeGapY, setPipeGapY] = useState(200);
 
-  const startGame = () => {
-    setGameOver(false);
-    setGameRunning(true);
+  const birdAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: birdY.value },
+      { rotate: `${Math.min(Math.max(birdVelocity.value * 3, -30), 90)}deg` }
+    ],
+  }));
 
-    gameRunningRef.current = true;
-    gameOverRef.current = false;
+  const pipeAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: pipesX.value }],
+  }));
 
-    birdYRef.current = 300;
-    pipesRef.current = [{ id: 0, x: 400, gapY: 200 }];
-    velocity.current = 0;
-
-    setBirdY(300);
-    setPipes([{ x: 400, gapY: 200 }]);
-
-    frameRef.current = requestAnimationFrame(loop);
-  };
-
-  const endGame = async () => {
+  const handleGameOver = async (finalScore: number) => {
     setGameOver(true);
     setGameRunning(false);
 
-    gameRunningRef.current = false;
-    gameOverRef.current = true;
-
-    if (score > highScore) {
-      setHighScore(score);
-      try {
-        await AsyncStorage.setItem("HIGH_SCORE", String(score));
-      } catch (e) {
-        console.log("Failed to save high score");
-      }
-    }
-
-    saveScore();
-
-    if (frameRef.current) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-  };
-
-  // Restart game after losing
-  const resetGame = () => {
-    passedPipes.current.clear();
-    pipeId.current = 1;
-    setScore(0);
+    // Load existing scores to update leaderboard
+    const savedScores = await AsyncStorage.getItem("SCORES");
+    let scores = savedScores ? JSON.parse(savedScores) : [];
+    scores.push(finalScore);
+    scores.sort((a: number, b: number) => b - a);
+    const top10 = scores.slice(0, 10);
     
-    startGame();
+    setLeaderboard(top10);
+    await AsyncStorage.setItem("SCORES", JSON.stringify(top10));
+
+    if (finalScore > highScore) {
+      setHighScore(finalScore);
+      await AsyncStorage.setItem("HIGH_SCORE", String(finalScore));
+    }
   };
 
-  // Game loop
-  const loop = () => {
-    if (!gameRunningRef.current) return;
+  useFrameCallback(() => {
+    if (!gameRunning || gameOver) return;
 
-    velocity.current += 0.5;
+    // 1. Bird Physics
+    birdVelocity.value += GAME_CONFIG.GRAVITY;
+    birdY.value += birdVelocity.value;
 
-    // bird
-    let newY = birdYRef.current + velocity.current;
-
-    if (newY < 0) {
-      newY = 0;
-      velocity.current = 0;
+    // 2. Ground/Ceiling Collision
+    if (birdY.value <= 0 || birdY.value >= GAME_CONFIG.SCREEN_HEIGHT - GAME_CONFIG.BIRD_SIZE) {
+      runOnJS(handleGameOver)(score);
     }
 
-    if (newY > SCREEN_HEIGHT - 40) {
-      newY = SCREEN_HEIGHT - 40;
-      velocity.current = 0;
-      endGame();
+    // 3. Pipe Movement
+    pipesX.value -= GAME_CONFIG.PIPE_SPEED;
+
+    // 4. Reset Pipe & Spawn New Gap
+    if (pipesX.value < -GAME_CONFIG.PIPE_WIDTH) {
+      pipesX.value = GAME_CONFIG.PIPE_SPAWN_X;
+      // Randomize next gap position
+      const nextGap = Math.random() * (GAME_CONFIG.PIPE_MAX_GAP_Y - GAME_CONFIG.PIPE_MIN_GAP_Y) + GAME_CONFIG.PIPE_MIN_GAP_Y;
+      runOnJS(setPipeGapY)(nextGap);
+      runOnJS(setScore)(s => s + 1);
     }
 
-    birdYRef.current = newY;
-    setBirdY(newY);
+    // 5. Pipe Collision Logic (Precise math on UI thread)
+    const birdRight = GAME_CONFIG.BIRD_X + GAME_CONFIG.BIRD_SIZE;
+    const birdLeft = GAME_CONFIG.BIRD_X;
+    const pipeRight = pipesX.value + GAME_CONFIG.PIPE_WIDTH;
+    const pipeLeft = pipesX.value;
 
-    // pipes
-    const updatedPipes = pipesRef.current.map((pipe) => ({
-      ...pipe,
-      x: pipe.x - 3,
-    }));
-
-    // spawn new pipe
-    if (updatedPipes[0].x < -60) {
-      updatedPipes.shift();
-      updatedPipes.push({
-        id: pipeId.current++,
-        x: 400,
-        gapY: Math.random() * 300 + 100,
-      });
-    }
-
-    pipesRef.current = updatedPipes;
-    setPipes(updatedPipes);
-
-    // 💥 collision check
-    checkCollision();
-
-    // Score count for passed pipe gap
-    updatedPipes.forEach((pipe) => {
-      if (pipe.x + 60 < 100 && !passedPipes.current.has(pipe.id)) {
-        passedPipes.current.add(pipe.id);
-        setScore(s => s + 1);
+    const withinX = birdRight > pipeLeft && birdLeft < pipeRight;
+    
+    if (withinX) {
+      const hitsTop = birdY.value < pipeGapY;
+      const hitsBottom = birdY.value + GAME_CONFIG.BIRD_SIZE > pipeGapY + GAME_CONFIG.PIPE_GAP;
+      if (hitsTop || hitsBottom) {
+        runOnJS(handleGameOver)(score);
       }
-    });
-
-    frameRef.current = requestAnimationFrame(loop);
-  };
-
-  // Collision with pipe, ground or ceiling
-  const checkCollision = () => {
-    const birdX = 100;
-    const birdSize = 40;
-
-    pipesRef.current.forEach(pipe => {
-      const pipeWidth = 60;
-      const gapSize = 150;
-
-      const withinX =
-        birdX + birdSize > pipe.x &&
-        birdX < pipe.x + pipeWidth;
-
-      const hitsTop = birdYRef.current < pipe.gapY;
-      const hitsBottom =
-        birdYRef.current + birdSize > pipe.gapY + gapSize;
-
-      // End the round if a collision has occurred
-      if (withinX && (hitsTop || hitsBottom)) {
-        if (!gameOverRef.current) {
-          endGame();
-        }
-      }
-    });
-  };
-
-  // Load personal best
-  const loadHighScore = async () => {
-    try {
-      const saved = await AsyncStorage.getItem("HIGH_SCORE");
-      if (saved !== null) {
-        setHighScore(Number(saved));
-      }
-    } catch (e) {
-      console.log("Failed to load high score");
     }
-  };
-
-  // Load leaderboard scores
-  const loadScores = async () => {
-    try {
-      const saved = await AsyncStorage.getItem("SCORES");
-      if (saved) {
-        setLeaderboard(JSON.parse(saved));
-      }
-    } catch (e) {
-      console.log("Error loading scores");
-    }
-  };
-
-  // Save game score to leaderboard scores
-  const saveScore = async () => {
-    try {
-      const saved = await AsyncStorage.getItem("SCORES");
-      const scores = saved ? JSON.parse(saved) : [];
-
-      scores.push(score);
-
-      scores.sort((a: number, b: number) => b - a); // suurin ensin
-
-      const top10 = scores.slice(0, 10);
-
-      await AsyncStorage.setItem("SCORES", JSON.stringify(top10));
-    } catch (e) {
-      console.log("Error saving score");
-    }
-  };
+  });
 
   const flap = () => {
-    if (!gameRunning || gameOver) return;
-    velocity.current = -8;
+    if (gameOver) {
+      resetGame();
+      return;
+    }
+    if (!gameRunning) {
+      setGameRunning(true);
+      return;
+    }
+    birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH;
+  };
+
+  const resetGame = () => {
+    birdY.value = GAME_CONFIG.INITIAL_BIRD_Y;
+    birdVelocity.value = 0;
+    pipesX.value = GAME_CONFIG.PIPE_SPAWN_X;
+    setScore(0);
+    setGameOver(false);
+    setGameRunning(true);
   };
 
   useEffect(() => {
-    loadHighScore();
-    loadScores();
-    startGame();
-
-    return () => {
-      if (frameRef.current) {
-        cancelAnimationFrame(frameRef.current);
-      }
+    const init = async () => {
+      const saved = await AsyncStorage.getItem("HIGH_SCORE");
+      const savedScores = await AsyncStorage.getItem("SCORES");
+      if (saved) setHighScore(Number(saved));
+      if (savedScores) setLeaderboard(JSON.parse(savedScores));
     };
+    init();
   }, []);
 
   return (
     <TouchableWithoutFeedback onPress={flap}>
       <View style={{ flex: 1, backgroundColor: "#70c5ce" }}>
-        <View
-          style={{
-            position: "absolute",
-            top: birdY,
-            left: 100,
-            width: 40,
-            height: 40,
-            backgroundColor: "yellow",
-            borderRadius: 20,
-            transform: [{ rotate: `${velocity.current * 3}deg` }],
-          }}
+        {/* Bird */}
+        <Animated.View
+          style={[
+            {
+              position: "absolute",
+              left: GAME_CONFIG.BIRD_X,
+              width: GAME_CONFIG.BIRD_SIZE,
+              height: GAME_CONFIG.BIRD_SIZE,
+              backgroundColor: "yellow",
+              borderRadius: GAME_CONFIG.BIRD_SIZE / 2,
+              zIndex: 10,
+            },
+            birdAnimatedStyle,
+          ]}
         />
 
-        {pipes.map((pipe, index) => (
-          <View key={index}>
-            {/* Yläputki */}
-            <View
-              style={{
-                position: "absolute",
-                left: pipe.x,
-                top: 0,
-                width: 60,
-                height: pipe.gapY,
-                backgroundColor: "green",
-              }}
-            />
+        {/* Pipes */}
+        <Animated.View style={[{ position: "absolute", inset: 0 }, pipeAnimatedStyle]}>
+          {/* Top Pipe */}
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              width: GAME_CONFIG.PIPE_WIDTH,
+              height: pipeGapY,
+              backgroundColor: "green",
+              borderBottomWidth: 5,
+              borderColor: "#1a4a1a",
+            }}
+          />
+          {/* Bottom Pipe */}
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              top: pipeGapY + GAME_CONFIG.PIPE_GAP,
+              width: GAME_CONFIG.PIPE_WIDTH,
+              height: GAME_CONFIG.SCREEN_HEIGHT,
+              backgroundColor: "green",
+              borderTopWidth: 5,
+              borderColor: "#1a4a1a",
+            }}
+          />
+        </Animated.View>
 
-            {/* Alaputki */}
-            <View
-              style={{
-                position: "absolute",
-                left: pipe.x,
-                top: pipe.gapY + 150, // gap size
-                width: 60,
-                height: 700,
-                backgroundColor: "green",
-              }}
-            />
-          </View>
-        ))}
-        <Text style={{ textAlign: "center", marginTop: 50 }}>
-          MockingBird 🐦
-        </Text>
-        <Text
-          style={{
-            position: "absolute",
-            top: 80,
-            alignSelf: "center",
-            fontSize: 40,
-            fontWeight: "bold",
-            color: "white",
-          }}
-        >
-          {score}
-        </Text>
+        {/* Score UI */}
+        <View style={{ marginTop: 60, alignItems: 'center' }}>
+          <Text style={{ color: "white", fontSize: 18, opacity: 0.8 }}>MockingBird 🐦</Text>
+          <Text style={{ fontSize: 80, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 5 }}>
+            {score}
+          </Text>
+        </View>
+
+        {!gameRunning && !gameOver && (
+           <View style={{ position: 'absolute', top: '50%', alignSelf: 'center' }}>
+             <Text style={{ fontSize: 24, color: 'white', fontWeight: 'bold' }}>TAP TO START</Text>
+           </View>
+        )}
+
         {gameOver && (
           <View
             style={{
               position: "absolute",
-              top: 250,
+              top: "25%",
               alignSelf: "center",
               alignItems: "center",
+              backgroundColor: "rgba(255,255,255,0.9)",
+              padding: 30,
+              borderRadius: 25,
+              width: '80%',
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 10 },
+              shadowOpacity: 0.3,
+              shadowRadius: 20,
             }}
           >
-            <Text
-              style={{
-                fontSize: 40,
-                fontWeight: "bold",
-                color: "white",
-                marginBottom: 20,
-              }}
-            >
-              GAME OVER
-            </Text>
-            <Text style={{ fontSize: 20, color: "white" }}>
-              Best: {highScore}
-            </Text>
-            <ScrollView style={{ maxHeight: 100 }}>
+            <Text style={{ fontSize: 32, fontWeight: "900", color: "#d32f2f" }}>GAME OVER</Text>
+            <View style={{ marginVertical: 20, alignItems: 'center' }}>
+               <Text style={{ fontSize: 18, color: "#555" }}>Current Score: {score}</Text>
+               <Text style={{ fontSize: 22, fontWeight: "bold", color: "#333" }}>Best: {highScore}</Text>
+            </View>
+            
+            <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>TOP SCORES</Text>
+            <ScrollView style={{ maxHeight: 120, width: '100%' }}>
               {leaderboard.map((s, i) => (
-                <Text key={i} style={{ color: "white", fontSize: 18 }}>
-                  {i + 1}. {s}
-                </Text>
+                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+                  <Text style={{ color: "#333" }}>#{i + 1}</Text>
+                  <Text style={{ fontWeight: 'bold' }}>{s}</Text>
+                </View>
               ))}
             </ScrollView>
-            <TouchableWithoutFeedback onPress={resetGame}>
-              <View
-                style={{
-                  backgroundColor: "white",
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
-                  borderRadius: 10,
-                }}
-              >
-                <Text style={{ fontSize: 18, fontWeight: "bold" }}>
-                  Restart
-                </Text>
-              </View>
-            </TouchableWithoutFeedback>
+
+            <View style={{ backgroundColor: "#70c5ce", paddingHorizontal: 30, paddingVertical: 15, borderRadius: 30, marginTop: 25 }}>
+              <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>Restart</Text>
+            </View>
           </View>
         )}
       </View>
