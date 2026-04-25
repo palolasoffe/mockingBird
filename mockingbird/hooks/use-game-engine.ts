@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
+import { Audio } from "expo-av";
 import { 
   useSharedValue, 
   useAnimatedStyle, 
@@ -16,6 +17,11 @@ export const useGameEngine = () => {
   const [gameOver, setGameOver] = useState(false);
   const [gameRunning, setGameRunning] = useState(false);
   const [leaderboard, setLeaderboard] = useState<number[]>([]);
+
+  // Sound Refs
+  const jumpSound = useRef<Audio.Sound | null>(null);
+  const coinSound = useRef<Audio.Sound | null>(null);
+  const crashSound = useRef<Audio.Sound | null>(null);
 
   // Engine Values (Physics)
   const birdY = useSharedValue(GAME_CONFIG.INITIAL_BIRD_Y);
@@ -42,6 +48,16 @@ export const useGameEngine = () => {
   const isPlaying = useSharedValue(false);
   const isDead = useSharedValue(false);
 
+  const playSound = async (soundRef: React.MutableRefObject<Audio.Sound | null>) => {
+    try {
+      if (soundRef.current) {
+        await soundRef.current.replayAsync();
+      }
+    } catch (e) {
+      console.log("Error playing sound", e);
+    }
+  };
+
   const triggerHaptic = (type: 'light' | 'medium' | 'heavy' | 'success' | 'error') => {
     switch(type) {
       case 'light': Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); break;
@@ -57,7 +73,9 @@ export const useGameEngine = () => {
     setGameRunning(false);
     isPlaying.value = false;
     isDead.value = true;
+    
     triggerHaptic('error');
+    playSound(crashSound);
     
     const updateStorage = async () => {
       const savedScores = await AsyncStorage.getItem("SCORES");
@@ -78,6 +96,7 @@ export const useGameEngine = () => {
   const handleScoreUpdate = useCallback(() => {
     setScore(s => s + 1);
     triggerHaptic('success');
+    playSound(coinSound);
   }, []);
 
   useFrameCallback(() => {
@@ -87,7 +106,6 @@ export const useGameEngine = () => {
     birdVelocity.value += GAME_CONFIG.GRAVITY;
     birdY.value += birdVelocity.value;
 
-    // Boundary check (Ground)
     const groundLevel = GAME_CONFIG.SCREEN_HEIGHT - GAME_CONFIG.FLOOR_HEIGHT - GAME_CONFIG.BIRD_SIZE;
     if (birdY.value <= 0 || birdY.value >= groundLevel) {
       runOnJS(handleGameOver)(score);
@@ -151,6 +169,7 @@ export const useGameEngine = () => {
     
     birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH;
     triggerHaptic('light');
+    playSound(jumpSound);
   }, [gameOver, gameRunning]);
 
   const resetGame = useCallback(() => {
@@ -181,12 +200,32 @@ export const useGameEngine = () => {
 
   useEffect(() => {
     const init = async () => {
+      // Load scores
       const saved = await AsyncStorage.getItem("HIGH_SCORE");
       const savedScores = await AsyncStorage.getItem("SCORES");
       if (saved) setHighScore(Number(saved));
       if (savedScores) setLeaderboard(JSON.parse(savedScores));
+
+      // Load sounds
+      const { sound: jSound } = await Audio.Sound.createAsync(require("@/assets/audio/jump.mp3"));
+      const { sound: cSound } = await Audio.Sound.createAsync(require("@/assets/audio/coin.mp3"));
+      const { sound: crSound } = await Audio.Sound.createAsync(require("@/assets/audio/crash.mp3"));
+      
+      // Make coin sound more quiet
+      await cSound.setVolumeAsync(0.4);
+      
+      jumpSound.current = jSound;
+      coinSound.current = cSound;
+      crashSound.current = crSound;
     };
     init();
+
+    return () => {
+      // Unload sounds
+      jumpSound.current?.unloadAsync();
+      coinSound.current?.unloadAsync();
+      crashSound.current?.unloadAsync();
+    };
   }, []);
 
   return {
