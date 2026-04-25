@@ -26,6 +26,11 @@ export const GAME_CONFIG = {
   GROUND_SPEED: 4.5,
   CLOUD_SPEED: 1.5,
 
+  // Power-up Settings
+  POWERUP_SIZE: 32,
+  POWERUP_SPAWN_CHANCE: 0.1, // Reduced from 0.3 to 10% chance
+  POWERUP_DURATION: 6000,    // Increased slightly to 6 seconds
+
   // Environment Palettes (Changes every 10 points)
   BACKGROUND_COLORS: [
     "#4ec0ca", // 0-9: Day
