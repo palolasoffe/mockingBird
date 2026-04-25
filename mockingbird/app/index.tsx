@@ -1,229 +1,175 @@
-import { useEffect, useState } from "react";
 import { Text, TouchableWithoutFeedback, View, ScrollView } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, { 
-  useSharedValue, 
   useAnimatedStyle, 
-  useFrameCallback,
-  runOnJS 
+  withSequence, 
+  withSpring, 
+  withTiming,
+  useSharedValue,
+  interpolate,
+  Extrapolation
 } from "react-native-reanimated";
 import { GAME_CONFIG } from "@/constants/game-config";
+import { useGameEngine } from "@/hooks/use-game-engine";
 
 export default function GameScreen() {
-  // Game State (UI only)
-  const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
-  const [gameRunning, setGameRunning] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<number[]>([]);
+  const {
+    score,
+    highScore,
+    gameOver,
+    gameRunning,
+    leaderboard,
+    pipeGapY,
+    birdY,
+    birdVelocity,
+    pipeAnimatedStyle,
+    flap,
+  } = useGameEngine();
 
-  // Engine Values (Physics) - Running on the UI Thread
-  const birdY = useSharedValue(GAME_CONFIG.INITIAL_BIRD_Y);
-  const birdVelocity = useSharedValue(0);
-  const pipesX = useSharedValue(GAME_CONFIG.PIPE_SPAWN_X);
-  const [pipeGapY, setPipeGapY] = useState(200);
+  const wingTranslation = useSharedValue(0);
 
-  const birdAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: birdY.value },
-      { rotate: `${Math.min(Math.max(birdVelocity.value * 3, -30), 90)}deg` }
-    ],
-  }));
+  const birdStyle = useAnimatedStyle(() => {
+    const rotation = interpolate(
+      birdVelocity.value,
+      [-10, 10],
+      [-20, 30],
+      Extrapolation.CLAMP
+    );
 
-  const pipeAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: pipesX.value }],
-  }));
-
-  const handleGameOver = async (finalScore: number) => {
-    setGameOver(true);
-    setGameRunning(false);
-
-    // Load existing scores to update leaderboard
-    const savedScores = await AsyncStorage.getItem("SCORES");
-    let scores = savedScores ? JSON.parse(savedScores) : [];
-    scores.push(finalScore);
-    scores.sort((a: number, b: number) => b - a);
-    const top10 = scores.slice(0, 10);
-    
-    setLeaderboard(top10);
-    await AsyncStorage.setItem("SCORES", JSON.stringify(top10));
-
-    if (finalScore > highScore) {
-      setHighScore(finalScore);
-      await AsyncStorage.setItem("HIGH_SCORE", String(finalScore));
-    }
-  };
-
-  useFrameCallback(() => {
-    if (!gameRunning || gameOver) return;
-
-    // 1. Bird Physics
-    birdVelocity.value += GAME_CONFIG.GRAVITY;
-    birdY.value += birdVelocity.value;
-
-    // 2. Ground/Ceiling Collision
-    if (birdY.value <= 0 || birdY.value >= GAME_CONFIG.SCREEN_HEIGHT - GAME_CONFIG.BIRD_SIZE) {
-      runOnJS(handleGameOver)(score);
-    }
-
-    // 3. Pipe Movement
-    pipesX.value -= GAME_CONFIG.PIPE_SPEED;
-
-    // 4. Reset Pipe & Spawn New Gap
-    if (pipesX.value < -GAME_CONFIG.PIPE_WIDTH) {
-      pipesX.value = GAME_CONFIG.PIPE_SPAWN_X;
-      // Randomize next gap position
-      const nextGap = Math.random() * (GAME_CONFIG.PIPE_MAX_GAP_Y - GAME_CONFIG.PIPE_MIN_GAP_Y) + GAME_CONFIG.PIPE_MIN_GAP_Y;
-      runOnJS(setPipeGapY)(nextGap);
-      runOnJS(setScore)(s => s + 1);
-    }
-
-    // 5. Pipe Collision Logic (Precise math on UI thread)
-    const birdRight = GAME_CONFIG.BIRD_X + GAME_CONFIG.BIRD_SIZE;
-    const birdLeft = GAME_CONFIG.BIRD_X;
-    const pipeRight = pipesX.value + GAME_CONFIG.PIPE_WIDTH;
-    const pipeLeft = pipesX.value;
-
-    const withinX = birdRight > pipeLeft && birdLeft < pipeRight;
-    
-    if (withinX) {
-      const hitsTop = birdY.value < pipeGapY;
-      const hitsBottom = birdY.value + GAME_CONFIG.BIRD_SIZE > pipeGapY + GAME_CONFIG.PIPE_GAP;
-      if (hitsTop || hitsBottom) {
-        runOnJS(handleGameOver)(score);
-      }
-    }
+    return {
+      transform: [
+        { translateY: birdY.value },
+        { rotate: `${rotation}deg` },
+      ],
+    };
   });
 
-  const flap = () => {
-    if (gameOver) {
-      resetGame();
-      return;
-    }
-    if (!gameRunning) {
-      setGameRunning(true);
-      return;
-    }
-    birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH;
-  };
+  const wingStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: wingTranslation.value }]
+  }));
 
-  const resetGame = () => {
-    birdY.value = GAME_CONFIG.INITIAL_BIRD_Y;
-    birdVelocity.value = 0;
-    pipesX.value = GAME_CONFIG.PIPE_SPAWN_X;
-    setScore(0);
-    setGameOver(false);
-    setGameRunning(true);
-  };
+  const handlePress = () => {
+    // Tiny, quick wing flap
+    wingTranslation.value = withSequence(
+      withTiming(-6, { duration: 40 }),
+      withTiming(6, { duration: 80 }),
+      withTiming(0, { duration: 60 })
+    );
 
-  useEffect(() => {
-    const init = async () => {
-      const saved = await AsyncStorage.getItem("HIGH_SCORE");
-      const savedScores = await AsyncStorage.getItem("SCORES");
-      if (saved) setHighScore(Number(saved));
-      if (savedScores) setLeaderboard(JSON.parse(savedScores));
-    };
-    init();
-  }, []);
+    flap();
+  };
 
   return (
-    <TouchableWithoutFeedback onPress={flap}>
-      <View style={{ flex: 1, backgroundColor: "#70c5ce" }}>
-        {/* Bird */}
-        <Animated.View
-          style={[
-            {
-              position: "absolute",
-              left: GAME_CONFIG.BIRD_X,
-              width: GAME_CONFIG.BIRD_SIZE,
-              height: GAME_CONFIG.BIRD_SIZE,
-              backgroundColor: "yellow",
-              borderRadius: GAME_CONFIG.BIRD_SIZE / 2,
-              zIndex: 10,
-            },
-            birdAnimatedStyle,
-          ]}
-        />
+    <TouchableWithoutFeedback onPressIn={handlePress}>
+      <View style={{ flex: 1, backgroundColor: "#4ec0ca" }}>
+        
+        {/* Square Bird Container */}
+        <Animated.View style={[
+          {
+            position: "absolute",
+            top: 0,
+            left: GAME_CONFIG.BIRD_X,
+            width: GAME_CONFIG.BIRD_SIZE,
+            height: GAME_CONFIG.BIRD_SIZE,
+            zIndex: 10,
+          },
+          birdStyle
+        ]}>
+          {/* Main Square Body */}
+          <View style={{ 
+            flex: 1, 
+            backgroundColor: "#ff5e5e", // Vibrant Red
+            borderRadius: 6,
+            borderWidth: 3, 
+            borderColor: "#2d3436",
+          }}>
+            {/* Minimalist Eye */}
+            <View style={{ 
+              position: 'absolute', 
+              top: 6, 
+              right: 6, 
+              width: 8, 
+              height: 8, 
+              backgroundColor: 'white', 
+              borderRadius: 2,
+              borderWidth: 2,
+              borderColor: '#2d3436'
+            }}>
+              <View style={{ position: 'absolute', right: 0, top: 0, width: 2, height: 2, backgroundColor: 'black' }} />
+            </View>
 
-        {/* Pipes */}
-        <Animated.View style={[{ position: "absolute", inset: 0 }, pipeAnimatedStyle]}>
-          {/* Top Pipe */}
-          <View
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              width: GAME_CONFIG.PIPE_WIDTH,
-              height: pipeGapY,
-              backgroundColor: "green",
-              borderBottomWidth: 5,
-              borderColor: "#1a4a1a",
-            }}
-          />
-          {/* Bottom Pipe */}
-          <View
-            style={{
-              position: "absolute",
-              left: 0,
-              top: pipeGapY + GAME_CONFIG.PIPE_GAP,
-              width: GAME_CONFIG.PIPE_WIDTH,
-              height: GAME_CONFIG.SCREEN_HEIGHT,
-              backgroundColor: "green",
-              borderTopWidth: 5,
-              borderColor: "#1a4a1a",
-            }}
-          />
+            {/* Simple Blocky Beak */}
+            <View style={{ 
+              position: 'absolute', 
+              top: 14, 
+              right: -8, 
+              width: 10, 
+              height: 10, 
+              backgroundColor: '#fab1a0', // Soft Orange
+              borderRadius: 2, 
+              borderWidth: 3, 
+              borderColor: "#2d3436" 
+            }} />
+          </View>
+
+          {/* Tiny Moving Wing */}
+          <Animated.View style={[
+            {
+              position: 'absolute',
+              top: 14,
+              left: -4,
+              width: 14,
+              height: 10,
+              backgroundColor: 'white',
+              borderRadius: 2,
+              borderWidth: 3,
+              borderColor: "#2d3436",
+              zIndex: 11,
+            },
+            wingStyle
+          ]} />
         </Animated.View>
 
-        {/* Score UI */}
-        <View style={{ marginTop: 60, alignItems: 'center' }}>
-          <Text style={{ color: "white", fontSize: 18, opacity: 0.8 }}>MockingBird 🐦</Text>
-          <Text style={{ fontSize: 80, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 5 }}>
+        {/* Minimalist Pipes */}
+        <Animated.View style={[{ position: "absolute", top: 0, bottom: 0, width: GAME_CONFIG.PIPE_WIDTH }, pipeAnimatedStyle]}>
+          <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: pipeGapY }}>
+            <View style={{ flex: 1, backgroundColor: "#73bf2e", borderLeftWidth: 4, borderRightWidth: 4, borderColor: "#54802a" }}>
+               <View style={{ position: 'absolute', right: 8, top: 0, bottom: 0, width: 4, backgroundColor: 'rgba(255,255,255,0.2)' }} />
+            </View>
+            <View style={{ position: 'absolute', bottom: 0, left: -6, right: -6, height: 24, backgroundColor: "#73bf2e", borderWidth: 4, borderColor: "#54802a", borderRadius: 2 }} />
+          </View>
+
+          <View style={{ position: "absolute", top: pipeGapY + GAME_CONFIG.PIPE_GAP, left: 0, right: 0, bottom: 0 }}>
+            <View style={{ flex: 1, backgroundColor: "#73bf2e", borderLeftWidth: 4, borderRightWidth: 4, borderColor: "#54802a" }}>
+               <View style={{ position: 'absolute', right: 8, top: 0, bottom: 0, width: 4, backgroundColor: 'rgba(255,255,255,0.2)' }} />
+            </View>
+            <View style={{ position: 'absolute', top: 0, left: -6, right: -6, height: 24, backgroundColor: "#73bf2e", borderWidth: 4, borderColor: "#54802a", borderRadius: 2 }} />
+          </View>
+        </Animated.View>
+
+        {/* Clean Score */}
+        <View style={{ marginTop: 80, alignItems: 'center' }}>
+          <Text style={{ fontSize: 80, fontWeight: "bold", color: "white", textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 4 }}>
             {score}
           </Text>
         </View>
 
         {!gameRunning && !gameOver && (
-           <View style={{ position: 'absolute', top: '50%', alignSelf: 'center' }}>
-             <Text style={{ fontSize: 24, color: 'white', fontWeight: 'bold' }}>TAP TO START</Text>
+           <View style={{ position: 'absolute', top: '50%', alignSelf: 'center', alignItems: 'center' }}>
+             <Text style={{ fontSize: 20, color: 'white', fontWeight: 'bold', letterSpacing: 1 }}>TAP TO START</Text>
            </View>
         )}
 
         {gameOver && (
-          <View
-            style={{
-              position: "absolute",
-              top: "25%",
-              alignSelf: "center",
-              alignItems: "center",
-              backgroundColor: "rgba(255,255,255,0.9)",
-              padding: 30,
-              borderRadius: 25,
-              width: '80%',
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 10 },
-              shadowOpacity: 0.3,
-              shadowRadius: 20,
-            }}
-          >
-            <Text style={{ fontSize: 32, fontWeight: "900", color: "#d32f2f" }}>GAME OVER</Text>
-            <View style={{ marginVertical: 20, alignItems: 'center' }}>
-               <Text style={{ fontSize: 18, color: "#555" }}>Current Score: {score}</Text>
-               <Text style={{ fontSize: 22, fontWeight: "bold", color: "#333" }}>Best: {highScore}</Text>
-            </View>
+          <View style={{ position: "absolute", top: "30%", alignSelf: "center", alignItems: "center", backgroundColor: "white", padding: 30, borderRadius: 10, width: '80%', borderWidth: 4, borderColor: '#566573' }}>
+            <Text style={{ fontSize: 28, fontWeight: "bold", color: "#566573" }}>GAME OVER</Text>
             
-            <Text style={{ fontWeight: 'bold', marginBottom: 5 }}>TOP SCORES</Text>
-            <ScrollView style={{ maxHeight: 120, width: '100%' }}>
-              {leaderboard.map((s, i) => (
-                <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
-                  <Text style={{ color: "#333" }}>#{i + 1}</Text>
-                  <Text style={{ fontWeight: 'bold' }}>{s}</Text>
-                </View>
-              ))}
-            </ScrollView>
+            <View style={{ marginVertical: 20, alignItems: 'center' }}>
+               <Text style={{ fontSize: 40, fontWeight: "bold", color: "#2c3e50" }}>{score}</Text>
+               <Text style={{ fontSize: 14, color: "#95a5a6", marginTop: 5 }}>BEST: {highScore}</Text>
+            </View>
 
-            <View style={{ backgroundColor: "#70c5ce", paddingHorizontal: 30, paddingVertical: 15, borderRadius: 30, marginTop: 25 }}>
-              <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>Restart</Text>
+            <View style={{ backgroundColor: "#e67e22", paddingHorizontal: 30, paddingVertical: 12, borderRadius: 4, borderWidth: 3, borderColor: '#566573' }}>
+              <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>RESTART</Text>
             </View>
           </View>
         )}
