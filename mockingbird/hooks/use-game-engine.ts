@@ -1,18 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Haptics from "expo-haptics";
-import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from "expo-av";
-import { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  useFrameCallback, 
-  runOnJS,
-  withTiming,
-  withSequence,
-  withRepeat,
-  cancelAnimation
-} from "react-native-reanimated";
 import { GAME_CONFIG } from "@/constants/game-config";
+import { DailyChallengeData, loadDailyChallenges, updateChallengeProgress } from "@/utils/daily-challenges";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
+import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  runOnJS,
+  useFrameCallback,
+  useSharedValue,
+  withTiming
+} from "react-native-reanimated";
 
 export type PowerUpType = 'shield' | 'shrink' | 'none';
 
@@ -24,10 +21,16 @@ export const useGameEngine = () => {
   const [gameRunning, setGameRunning] = useState(false);
   const [showMenu, setShowMenu] = useState(true);
   const [leaderboard, setLeaderboard] = useState<number[]>([]);
+  const [dailyChallenges, setDailyChallenges] = useState<DailyChallengeData | null>(null);
 
   // Power-up State (UI)
   const [activePowerUp, setActivePowerUp] = useState<PowerUpType>('none');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Challenge Tracking
+  const powerUpsCollected = useRef(0);
+  const pipesPassed = useRef(0);
+  const gameStartTime = useRef<number | null>(null);
 
   // Sound Refs
   const jumpSound = useRef<Audio.Sound | null>(null);
@@ -152,10 +155,29 @@ export const useGameEngine = () => {
     }
   }, [gameRunning, gameOver, score, updateMusic]);
 
-  const handleGameOver = useCallback((finalScore: number) => {
+  const updateChallengeAsync = useCallback(async (type: DailyChallenge['type'], progress: number) => {
+    try {
+      await updateChallengeProgress(type, progress);
+    } catch (error) {
+      console.warn('Failed to update challenge progress:', error);
+    }
+  }, []);
+
+  const handleGameOver = useCallback(async (finalScore: number) => {
     setGameOver(true); setGameRunning(false); isPlaying.value = false; isDead.value = true;
     if (timerRef.current) clearTimeout(timerRef.current);
     triggerHaptic('error'); playSound(crashSound);
+    
+    // Update survival challenge
+    if (gameStartTime.current) {
+      const survivalTime = Math.floor((Date.now() - gameStartTime.current) / 1000);
+      updateChallengeAsync('survival', survivalTime);
+    }
+
+    // Update powerup challenge
+    if (powerUpsCollected.current > 0) {
+      updateChallengeAsync('powerups', powerUpsCollected.current);
+    }
     
     const updateStorage = async () => {
       try {
@@ -173,9 +195,30 @@ export const useGameEngine = () => {
       }
     };
     updateStorage();
-  }, [highScore]);
+  }, [highScore, updateChallengeAsync]);
 
-  const handleScoreUpdate = useCallback(() => { setScore(s => s + 1); triggerHaptic('success'); playSound(coinSound); }, []);
+  const handleScoreUpdate = useCallback(() => { 
+    setScore(s => {
+      const newScore = s + 1;
+      pipesPassed.current++;
+      // Update challenge progress for score and pipes
+      updateChallengeAsync('score', newScore);
+      updateChallengeAsync('pipes', pipesPassed.current);
+      return newScore;
+    }); 
+    triggerHaptic('success'); 
+    playSound(coinSound); 
+  }, [updateChallengeAsync]);
+
+  const updateAndSyncChallenges = async (
+  type: 'score' | 'powerups' | 'pipes' | 'survival',
+  value: number
+) => {
+  const updated = await updateChallengeProgress(type, value);
+  if (updated) {
+    setDailyChallenges({ ...updated });
+  }
+};
 
   useFrameCallback(() => {
     if (!isPlaying.value || isDead.value) return;
@@ -255,12 +298,21 @@ export const useGameEngine = () => {
     birdY.value = GAME_CONFIG.INITIAL_BIRD_Y; birdVelocity.value = 0; birdSize.value = GAME_CONFIG.BIRD_SIZE;
     isInvincible.value = false; mercyFrames.value = 0; setActivePowerUp('none'); setScore(0); powerUpX.value = -200;
     if (timerRef.current) clearTimeout(timerRef.current);
+    // Reset challenge tracking
+    powerUpsCollected.current = 0;
+    pipesPassed.current = 0;
+    gameStartTime.current = null;
   }, []);
 
   const flap = useCallback(() => {
     if (isDead.value) { resetGame(); return; }
     if (showMenu) { startFromMenu(); return; }
-    if (!isPlaying.value) { isPlaying.value = true; setGameRunning(true); triggerHaptic('medium'); }
+    if (!isPlaying.value) { 
+      isPlaying.value = true; 
+      setGameRunning(true); 
+      gameStartTime.current = Date.now();
+      triggerHaptic('medium'); 
+    }
     birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH; triggerHaptic('light'); playSound(jumpSound);
   }, [gameOver, gameRunning, showMenu, startFromMenu]);
 
@@ -272,6 +324,10 @@ export const useGameEngine = () => {
     pipe2X.value = GAME_CONFIG.PIPE_SPAWN_X + GAME_CONFIG.PIPE_SPACING; pipe2GapY.value = 300; pipe2Scored.value = false;
     pipe3X.value = GAME_CONFIG.PIPE_SPAWN_X + GAME_CONFIG.PIPE_SPACING * 2; pipe3GapY.value = 250; pipe3Scored.value = false;
     groundX.value = 0; cloudX.value = 0; setScore(0); setGameOver(false); setGameRunning(true); isDead.value = false; isPlaying.value = true;
+    // Reset challenge tracking
+    powerUpsCollected.current = 0;
+    pipesPassed.current = 0;
+    gameStartTime.current = Date.now();
   }, []);
 
   useEffect(() => {
@@ -292,10 +348,12 @@ export const useGameEngine = () => {
 
       // Load Storage (Non-blocking)
       try {
-        const saved = await AsyncStorage.getItem("HIGH_SCORE");
+        const saved = await AsyncStorage.getItem("HIGH_SCORE"); 
         const savedScores = await AsyncStorage.getItem("SCORES");
+        const dailyChallengesData = await loadDailyChallenges();
         if (saved) setHighScore(Number(saved));
         if (savedScores) setLeaderboard(JSON.parse(savedScores));
+        setDailyChallenges(dailyChallengesData || null);
         console.log("Storage loaded successfully");
       } catch (e) {
         console.warn("AsyncStorage failed during init:", e);
@@ -349,7 +407,7 @@ export const useGameEngine = () => {
   }, []);
 
   return {
-    score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp,
+    score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp, dailyChallenges,
     birdY, birdVelocity, birdSize, pipe1X, pipe1GapY, pipe2X, pipe2GapY, pipe3X, pipe3GapY,
     powerUpX, powerUpY, currentPowerUpType, groundX, cloudX, flap, resetGame, startFromMenu, returnToMenu
   };

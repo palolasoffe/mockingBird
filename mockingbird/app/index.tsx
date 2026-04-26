@@ -1,19 +1,20 @@
-import { Text, TouchableWithoutFeedback, View, ScrollView } from "react-native";
-import Animated, { 
-  useAnimatedStyle, 
-  withSequence, 
-  withTiming,
-  useSharedValue,
-  interpolate,
-  Extrapolation,
-  withRepeat,
-  interpolateColor,
-  useDerivedValue,
-  runOnJS
-} from "react-native-reanimated";
-import { useEffect, useState } from "react";
+import { DailyChallenges } from "@/components/DailyChallenges";
 import { GAME_CONFIG } from "@/constants/game-config";
-import { useGameEngine, PowerUpType } from "@/hooks/use-game-engine";
+import { PowerUpType, useGameEngine } from "@/hooks/use-game-engine";
+import { useEffect, useState } from "react";
+import { Text, TouchableWithoutFeedback, View } from "react-native";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  interpolateColor,
+  runOnJS,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming
+} from "react-native-reanimated";
 
 const PipeSet = ({ x, gapY }: { x: Animated.SharedValue<number>, gapY: Animated.SharedValue<number> }) => {
   const containerStyle = useAnimatedStyle(() => ({
@@ -156,7 +157,7 @@ const ScrollingGround = ({ x }: { x: Animated.SharedValue<number> }) => {
 
 export default function GameScreen() {
   const {
-    score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp,
+    score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp, dailyChallenges,
     birdY, birdVelocity, birdSize, pipe1X, pipe1GapY, pipe2X, pipe2GapY, pipe3X, pipe3GapY,
     powerUpX, powerUpY, currentPowerUpType, groundX, cloudX, flap, resetGame, returnToMenu,
   } = useGameEngine();
@@ -239,15 +240,29 @@ export default function GameScreen() {
         )}
 
         {showMenu && (
-           <Animated.View style={[{ position: 'absolute', top: '25%', alignSelf: 'center', alignItems: 'center' }, menuStyle]}>
-             <Text style={{ fontSize: 48, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowRadius: 10 }}>MOCKINGBIRD</Text>
-             <View style={{ backgroundColor: "#ff5e5e", paddingHorizontal: 40, paddingVertical: 15, borderRadius: 10, borderWidth: 4, borderColor: '#2d3436', marginTop: 40 }}>
-                <Text style={{ fontSize: 24, fontWeight: "900", color: "white" }}>START</Text>
-             </View>
-             <View style={{ backgroundColor: 'rgba(0,0,0,0.1)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, marginTop: 30 }}>
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>BEST: {highScore}</Text>
-             </View>
-           </Animated.View>
+           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+             <Animated.View style={[{ position: 'absolute', top: '5%', alignSelf: 'center', alignItems: 'center' }, menuStyle]}>
+               <Text style={{ fontSize: 48, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowRadius: 10 }}>MOCKINGBIRD</Text>
+               <View style={{ backgroundColor: "#ff5e5e", paddingHorizontal: 40, paddingVertical: 15, borderRadius: 10, borderWidth: 4, borderColor: '#2d3436', marginTop: 40 }}>
+                  <Text style={{ fontSize: 24, fontWeight: "900", color: "white" }}>START</Text>
+               </View>
+               <View style={{ backgroundColor: 'rgba(0,0,0,0.1)', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, marginTop: 30 }}>
+                  <Text style={{ color: 'white', fontWeight: 'bold' }}>BEST: {highScore}</Text>
+               </View>
+             </Animated.View>
+             
+             <View style={{ 
+              position: 'absolute',
+              top: '43%',
+              left: 0,
+              right: 0,
+              width: '100%',
+              alignItems: 'center',
+              zIndex: 20
+            }}>
+            <DailyChallenges challenges={dailyChallenges} />
+          </View>
+           </View>
         )}
 
         {!gameRunning && !gameOver && !showMenu && (
