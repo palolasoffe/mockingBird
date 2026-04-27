@@ -13,7 +13,8 @@ import Animated, {
   useSharedValue,
   withRepeat,
   withSequence,
-  withTiming
+  withTiming,
+  withSpring
 } from "react-native-reanimated";
 
 const PipeSet = ({ x, gapY }: { x: Animated.SharedValue<number>, gapY: Animated.SharedValue<number> }) => {
@@ -53,7 +54,6 @@ const PowerUpCollectible = ({ x, y, type }: { x: Animated.SharedValue<number>, y
     );
   }, []);
 
-  // Sync shared value type to local state for conditional rendering
   useDerivedValue(() => {
     if (type.value !== localType) {
       runOnJS(setLocalType)(type.value);
@@ -79,14 +79,12 @@ const PowerUpCollectible = ({ x, y, type }: { x: Animated.SharedValue<number>, y
       justifyContent: 'center',
       alignItems: 'center'
     }, style]}>
-       {/* Shield Visual (Blue Crystal) */}
        {localType === 'shield' && (
          <View style={{ width: '100%', height: '100%', backgroundColor: '#3498db', borderWidth: 3, borderColor: 'white', borderRadius: 4, shadowColor: '#3498db', shadowRadius: 10, shadowOpacity: 0.8 }}>
             <View style={{ position: 'absolute', top: 4, left: 4, width: 6, height: 6, backgroundColor: 'white', borderRadius: 2, opacity: 0.6 }} />
          </View>
        )}
 
-       {/* Shrink Visual (Purple Orb) */}
        {localType === 'shrink' && (
          <View style={{ width: '100%', height: '100%', backgroundColor: '#9b59b6', borderWidth: 3, borderColor: 'white', borderRadius: 20, shadowColor: '#9b59b6', shadowRadius: 10, shadowOpacity: 0.8 }}>
             <View style={{ position: 'absolute', top: '25%', left: '25%', width: '50%', height: '50%', backgroundColor: 'white', borderRadius: 10, opacity: 0.3 }} />
@@ -155,11 +153,52 @@ const ScrollingGround = ({ x }: { x: Animated.SharedValue<number> }) => {
   );
 };
 
+const ChallengeToast = ({ challenge }: { challenge: any }) => {
+  const translateY = useSharedValue(-100);
+  
+  useEffect(() => {
+    if (challenge) {
+      translateY.value = withSequence(
+        withSpring(50),
+        withTiming(50, { duration: 2000 }),
+        withSpring(-100)
+      );
+    }
+  }, [challenge]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: interpolate(translateY.value, [-100, 50], [0, 1])
+  }));
+
+  if (!challenge) return null;
+
+  return (
+    <Animated.View style={[{ 
+      position: 'absolute', top: 0, left: '10%', right: '10%', 
+      backgroundColor: '#f1c40f', padding: 15, borderRadius: 12, 
+      borderWidth: 3, borderColor: 'white', zIndex: 100,
+      flexDirection: 'row', alignItems: 'center', gap: 10,
+      shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5
+    }, style]}>
+      <View style={{ width: 30, height: 30, backgroundColor: 'white', borderRadius: 15, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ fontSize: 18 }}>⭐</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontWeight: '900', color: '#2c3e50', fontSize: 14 }}>CHALLENGE COMPLETE!</Text>
+        <Text style={{ fontWeight: 'bold', color: '#7f8c8d', fontSize: 12 }}>{challenge.title}</Text>
+      </View>
+      <Text style={{ fontWeight: '900', color: '#27ae60' }}>+{challenge.rewardValue}</Text>
+    </Animated.View>
+  );
+};
+
 export default function GameScreen() {
   const {
     score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp, dailyChallenges,
+    completedChallenge, totalStars,
     birdY, birdVelocity, birdSize, pipe1X, pipe1GapY, pipe2X, pipe2GapY, pipe3X, pipe3GapY,
-    powerUpX, powerUpY, currentPowerUpType, groundX, cloudX, flap, resetGame, returnToMenu,
+    powerUpX, powerUpY, currentPowerUpType, groundX, cloudX, flap, resetGame, startFromMenu, returnToMenu,
   } = useGameEngine();
 
   const wingTranslation = useSharedValue(0);
@@ -201,6 +240,8 @@ export default function GameScreen() {
   return (
     <TouchableWithoutFeedback onPressIn={handlePress}>
       <Animated.View style={[{ flex: 1 }, backgroundStyle]}>
+        <ChallengeToast challenge={completedChallenge} />
+        
         <CelestialBodies scoreSV={scoreSV} />
         <ScrollingClouds x={cloudX} opacityStyle={cloudOpacityStyle} />
         <PipeSet x={pipe1X} gapY={pipe1GapY} />
@@ -241,6 +282,11 @@ export default function GameScreen() {
 
         {showMenu && (
            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+             <View style={{ position: 'absolute', top: 50, right: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, gap: 8 }}>
+                <Text style={{ color: '#f1c40f', fontWeight: '900', fontSize: 18 }}>⭐</Text>
+                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>{totalStars}</Text>
+             </View>
+
              <Animated.View style={[{ position: 'absolute', top: '5%', alignSelf: 'center', alignItems: 'center' }, menuStyle]}>
                <Text style={{ fontSize: 48, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowRadius: 10 }}>MOCKINGBIRD</Text>
                <View style={{ backgroundColor: "#ff5e5e", paddingHorizontal: 40, paddingVertical: 15, borderRadius: 10, borderWidth: 4, borderColor: '#2d3436', marginTop: 40 }}>

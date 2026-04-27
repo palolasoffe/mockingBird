@@ -1,5 +1,5 @@
 import { GAME_CONFIG } from "@/constants/game-config";
-import { DailyChallengeData, loadDailyChallenges, updateChallengeProgress } from "@/utils/daily-challenges";
+import { DailyChallenge, DailyChallengeData, loadDailyChallenges, updateChallengeProgress } from "@/utils/daily-challenges";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,17 +21,19 @@ export const useGameEngine = () => {
   const [showMenu, setShowMenu] = useState(true);
   const [leaderboard, setLeaderboard] = useState<number[]>([]);
   const [dailyChallenges, setDailyChallenges] = useState<DailyChallengeData | null>(null);
+  const [completedChallenge, setCompletedChallenge] = useState<DailyChallenge | null>(null);
+  const [totalStars, setTotalStars] = useState(0);
 
   // Power-up State (UI)
   const [activePowerUp, setActivePowerUp] = useState<PowerUpType>('none');
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Challenge Tracking
-  const powerUpsCollected = useRef(0);
-  const pipesPassed = useRef(0);
+  // Challenge Tracking (Shared Values for Worklet compatibility)
+  const powerUpsCollected = useSharedValue(0);
+  const pipesPassed = useSharedValue(0);
   const gameStartTime = useRef<number | null>(null);
 
-  // Sound Pools (for polyphony)
+  // Sound Pools
   const jumpPool = useRef<Audio.Sound[]>([]);
   const coinPool = useRef<Audio.Sound[]>([]);
   const jumpIndex = useRef(0);
@@ -160,7 +162,17 @@ export const useGameEngine = () => {
 
   const updateChallengeAsync = useCallback(async (type: 'score' | 'powerups' | 'pipes' | 'survival', progress: number) => {
     try {
-      await updateChallengeProgress(type, progress);
+      const result = await updateChallengeProgress(type, progress);
+      if (result.newlyCompleted) {
+        setCompletedChallenge(result.newlyCompleted);
+        setTotalStars(prev => {
+          const newVal = prev + result.newlyCompleted!.rewardValue;
+          AsyncStorage.setItem("TOTAL_STARS", String(newVal));
+          return newVal;
+        });
+        setTimeout(() => setCompletedChallenge(null), 3000);
+      }
+      setDailyChallenges(result);
     } catch (error) {
       console.warn('Failed to update challenge progress:', error);
     }
@@ -171,15 +183,17 @@ export const useGameEngine = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     playCrashSound();
     
-    // Update survival challenge
+    // SEQUENTIAL UPDATES to prevent AsyncStorage race conditions
+    await updateChallengeAsync('pipes', pipesPassed.value);
+    await updateChallengeAsync('score', finalScore);
+
     if (gameStartTime.current) {
       const survivalTime = Math.floor((Date.now() - gameStartTime.current) / 1000);
-      updateChallengeAsync('survival', survivalTime);
+      await updateChallengeAsync('survival', survivalTime);
     }
 
-    // Update powerup challenge
-    if (powerUpsCollected.current > 0) {
-      updateChallengeAsync('powerups', powerUpsCollected.current);
+    if (powerUpsCollected.value > 0) {
+      await updateChallengeAsync('powerups', powerUpsCollected.value);
     }
     
     const updateStorage = async () => {
@@ -201,26 +215,9 @@ export const useGameEngine = () => {
   }, [highScore, updateChallengeAsync]);
 
   const handleScoreUpdate = useCallback(() => { 
-    setScore(s => {
-      const newScore = s + 1;
-      pipesPassed.current++;
-      // Update challenge progress for score and pipes
-      updateChallengeAsync('score', newScore);
-      updateChallengeAsync('pipes', pipesPassed.current);
-      return newScore;
-    }); 
+    setScore(s => s + 1);
     playFromPool(coinPool, coinIndex); 
-  }, [updateChallengeAsync]);
-
-  const updateAndSyncChallenges = async (
-  type: 'score' | 'powerups' | 'pipes' | 'survival',
-  value: number
-) => {
-  const updated = await updateChallengeProgress(type, value);
-  if (updated) {
-    setDailyChallenges({ ...updated });
-  }
-};
+  }, []);
 
   useFrameCallback(() => {
     if (!isPlaying.value || isDead.value) return;
@@ -250,7 +247,11 @@ export const useGameEngine = () => {
       powerUpX.value -= GAME_CONFIG.PIPE_SPEED;
       const withinX = GAME_CONFIG.BIRD_X + birdSize.value > powerUpX.value && GAME_CONFIG.BIRD_X < powerUpX.value + GAME_CONFIG.POWERUP_SIZE;
       const withinY = birdY.value + birdSize.value > powerUpY.value && birdY.value < powerUpY.value + GAME_CONFIG.POWERUP_SIZE;
-      if (withinX && withinY) { activatePowerUp(currentPowerUpType.value); powerUpX.value = -200; }
+      if (withinX && withinY) { 
+        powerUpsCollected.value++; // Safe to modify sharedValue in worklet
+        activatePowerUp(currentPowerUpType.value); 
+        powerUpX.value = -200; 
+      }
     }
 
     const pipes = [{ x: pipe1X, gapY: pipe1GapY, scored: pipe1Scored }, { x: pipe2X, gapY: pipe2GapY, scored: pipe2Scored }, { x: pipe3X, gapY: pipe3GapY, scored: pipe3Scored }];
@@ -269,7 +270,9 @@ export const useGameEngine = () => {
         }
       }
       if (!pipe.scored.value && pipe.x.value + GAME_CONFIG.PIPE_WIDTH < GAME_CONFIG.BIRD_X) {
-        pipe.scored.value = true; runOnJS(handleScoreUpdate)();
+        pipe.scored.value = true; 
+        pipesPassed.value++; // Increment pipe count in worklet
+        runOnJS(handleScoreUpdate)();
       }
       const birdRight = GAME_CONFIG.BIRD_X + birdSize.value;
       const birdLeft = GAME_CONFIG.BIRD_X;
@@ -308,9 +311,9 @@ export const useGameEngine = () => {
     // Reset environment
     groundX.value = 0; cloudX.value = 0;
     
-    // Reset challenge tracking
-    powerUpsCollected.current = 0;
-    pipesPassed.current = 0;
+    // Reset session tracking
+    powerUpsCollected.value = 0;
+    pipesPassed.value = 0;
     gameStartTime.current = null;
   }, []);
 
@@ -333,9 +336,10 @@ export const useGameEngine = () => {
     pipe2X.value = GAME_CONFIG.PIPE_SPAWN_X + GAME_CONFIG.PIPE_SPACING; pipe2GapY.value = 300; pipe2Scored.value = false;
     pipe3X.value = GAME_CONFIG.PIPE_SPAWN_X + GAME_CONFIG.PIPE_SPACING * 2; pipe3GapY.value = 250; pipe3Scored.value = false;
     groundX.value = 0; cloudX.value = 0; setScore(0); setGameOver(false); setGameRunning(true); isDead.value = false; isPlaying.value = true;
-    // Reset challenge tracking
-    powerUpsCollected.current = 0;
-    pipesPassed.current = 0;
+    
+    // Reset session tracking
+    powerUpsCollected.value = 0;
+    pipesPassed.value = 0;
     gameStartTime.current = Date.now();
   }, []);
 
@@ -359,9 +363,11 @@ export const useGameEngine = () => {
       try {
         const saved = await AsyncStorage.getItem("HIGH_SCORE"); 
         const savedScores = await AsyncStorage.getItem("SCORES");
+        const savedStars = await AsyncStorage.getItem("TOTAL_STARS");
         const dailyChallengesData = await loadDailyChallenges();
         if (saved) setHighScore(Number(saved));
         if (savedScores) setLeaderboard(JSON.parse(savedScores));
+        if (savedStars) setTotalStars(Number(savedStars));
         setDailyChallenges(dailyChallengesData || null);
         console.log("Storage loaded successfully");
       } catch (e) {
@@ -428,6 +434,7 @@ export const useGameEngine = () => {
 
   return {
     score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp, dailyChallenges,
+    completedChallenge, totalStars,
     birdY, birdVelocity, birdSize, pipe1X, pipe1GapY, pipe2X, pipe2GapY, pipe3X, pipe3GapY,
     powerUpX, powerUpY, currentPowerUpType, groundX, cloudX, flap, resetGame, startFromMenu, returnToMenu
   };

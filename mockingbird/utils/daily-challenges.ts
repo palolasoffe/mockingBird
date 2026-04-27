@@ -6,7 +6,7 @@ export interface DailyChallenge {
   description: string;
   type: 'score' | 'powerups' | 'pipes' | 'survival';
   target: number;
-  reward: string;
+  rewardValue: number;
   completed: boolean;
   progress: number;
 }
@@ -15,18 +15,23 @@ export interface DailyChallengeData {
   date: string;
   challenges: DailyChallenge[];
   completedCount: number;
+  newlyCompleted?: DailyChallenge | null;
 }
+
+// STORAGE_KEY changed to V2 to force progress reset for the user
+const STORAGE_KEY = 'DAILY_CHALLENGES_V2';
 
 export const generateDailyChallenges = (dateString: string): DailyChallenge[] => {
   const seed = dateString.split('-').reduce((acc, part) => acc + parseInt(part), 0);
 
   const challengeTemplates = [
-    { type: 'score' as const, title: 'Score Master', description: 'Reach a score of {target}', targets: [10, 15, 20, 25, 30], reward: 'Score Multiplier' },
-    { type: 'powerups' as const, title: 'Power Collector', description: 'Collect {target} power-ups', targets: [2, 3, 4, 5], reward: 'Extra Power-up' },
-    { type: 'pipes' as const, title: 'Pipe Dodger', description: 'Pass through {target} pipes', targets: [15, 20, 25, 30, 35], reward: 'Shield Boost' },
-    { type: 'survival' as const, title: 'Survival Expert', description: 'Survive for {target} seconds', targets: [30, 45, 60, 75], reward: 'Time Bonus' }
+    { type: 'score' as const, title: 'Pistehai', description: 'Kerää yhteensä {target} pistettä', targets: [50, 100, 150], baseReward: 50 },
+    { type: 'pipes' as const, title: 'Putkimestari', description: 'Ohita yhteensä {target} putkea', targets: [30, 60, 90], baseReward: 60 },
+    { type: 'powerups' as const, title: 'Voimankerääjä', description: 'Kerää yhteensä {target} voima-palloa', targets: [5, 10, 15], baseReward: 75 },
+    { type: 'survival' as const, title: 'Selviytyjä', description: 'Selviydy yhteensä {target} sekuntia', targets: [120, 240, 300], baseReward: 100 }
   ];
 
+  // Pick 3 unique templates
   const selectedIndices = [
     (seed + 0) % challengeTemplates.length,
     (seed + 1) % challengeTemplates.length,
@@ -48,7 +53,7 @@ export const generateDailyChallenges = (dateString: string): DailyChallenge[] =>
       description: template.description.replace('{target}', target.toString()),
       type: template.type,
       target,
-      reward: template.reward,
+      rewardValue: template.baseReward,
       completed: false,
       progress: 0
     };
@@ -62,12 +67,11 @@ export const getTodayString = (): string => {
 
 export const loadDailyChallenges = async (): Promise<DailyChallengeData> => {
   try {
-    const stored = await AsyncStorage.getItem('DAILY_CHALLENGES');
+    const stored = await AsyncStorage.getItem(STORAGE_KEY);
     const today = getTodayString();
 
     if (stored) {
       const data: DailyChallengeData = JSON.parse(stored);
-
       if (data.date === today) {
         return data;
       }
@@ -79,12 +83,10 @@ export const loadDailyChallenges = async (): Promise<DailyChallengeData> => {
       completedCount: 0
     };
 
-    await AsyncStorage.setItem('DAILY_CHALLENGES', JSON.stringify(newData));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
     return newData;
-
   } catch (error) {
     console.warn('Daily challenges load failed:', error);
-
     return {
       date: getTodayString(),
       challenges: generateDailyChallenges(getTodayString()),
@@ -95,7 +97,7 @@ export const loadDailyChallenges = async (): Promise<DailyChallengeData> => {
 
 export const saveDailyChallenges = async (data: DailyChallengeData): Promise<void> => {
   try {
-    await AsyncStorage.setItem('DAILY_CHALLENGES', JSON.stringify(data));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (error) {
     console.warn('Error saving daily challenges:', error);
   }
@@ -105,31 +107,30 @@ export const updateChallengeProgress = async (
   type: DailyChallenge['type'],
   increment: number
 ): Promise<DailyChallengeData> => {
-
   const data = await loadDailyChallenges();
-
+  let newlyCompleted: DailyChallenge | null = null;
   let completedCount = 0;
 
   data.challenges.forEach(challenge => {
     if (challenge.type === type && !challenge.completed) {
+      const oldProgress = challenge.progress;
       challenge.progress = Math.min(
         challenge.progress + increment,
         challenge.target
       );
 
-      if (challenge.progress >= challenge.target) {
+      if (challenge.progress >= challenge.target && oldProgress < challenge.target) {
         challenge.completed = true;
+        newlyCompleted = challenge;
       }
     }
-
     if (challenge.completed) {
       completedCount++;
     }
   });
 
   data.completedCount = completedCount;
-
+  data.newlyCompleted = newlyCompleted;
   await saveDailyChallenges(data);
-
   return data;
 };
