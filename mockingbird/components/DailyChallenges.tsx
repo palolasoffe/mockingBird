@@ -11,9 +11,9 @@ export const DailyChallenges: React.FC<DailyChallengesProps> = ({ challenges, on
   if (!challenges) return null;
 
   const getProgressColor = (progress: number, target: number, completed: boolean) => {
-    if (completed) return '#4CAF50'; // Vihreä
-    if (progress > 0) return '#f1c40f'; // Keltainen
-    return '#757575'; // Harmaa
+    if (completed) return '#4CAF50'; 
+    if (progress > 0) return '#f1c40f'; 
+    return '#757575'; 
   };
 
   const getProgressText = (challenge: DailyChallenge) => {
@@ -23,9 +23,9 @@ export const DailyChallenges: React.FC<DailyChallengesProps> = ({ challenges, on
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>PÄIVÄN HAASTEET</Text>
+      <Text style={styles.title}>DAILY CHALLENGES</Text>
       <Text style={styles.subtitle}>
-        {challenges.completedCount}/{challenges.challenges.length} SUORITETTU
+        {challenges.completedCount}/{challenges.challenges.length} COMPLETED
       </Text>
 
       {challenges.challenges.map((challenge) => (
@@ -60,7 +60,7 @@ export const DailyChallenges: React.FC<DailyChallengesProps> = ({ challenges, on
           </Text>
 
           <View style={styles.rewardContainer}>
-             <Text style={styles.rewardText}>PALKINTO: </Text>
+             <Text style={styles.rewardText}>REWARD: </Text>
              <Text style={styles.starText}>⭐ {challenge.rewardValue}</Text>
           </View>
 

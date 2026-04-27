@@ -1,6 +1,7 @@
 import { DailyChallenges } from "@/components/DailyChallenges";
 import { GAME_CONFIG } from "@/constants/game-config";
 import { PowerUpType, useGameEngine } from "@/hooks/use-game-engine";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { Text, TouchableWithoutFeedback, View } from "react-native";
 import Animated, {
@@ -193,6 +194,104 @@ const ChallengeToast = ({ challenge }: { challenge: any }) => {
   );
 };
 
+const CoolLogo = () => {
+  const glideY = useSharedValue(0);
+  const tilt = useSharedValue(0);
+
+  useEffect(() => {
+    glideY.value = withRepeat(withTiming(15, { duration: 2000 }), -1, true);
+    tilt.value = withRepeat(withTiming(4, { duration: 1500 }), -1, true);
+  }, []);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: glideY.value },
+      { rotate: `${tilt.value}deg` }
+    ]
+  }));
+
+  return (
+    <Animated.View style={[style, { alignItems: 'center' }]}>
+      <View style={{ 
+        backgroundColor: 'white', 
+        paddingHorizontal: 20, 
+        paddingVertical: 10, 
+        borderRadius: 50,
+        borderWidth: 4,
+        borderColor: '#2d3436',
+        flexDirection: 'row',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8
+      }}>
+        <View style={{ 
+          width: 34, height: 34, 
+          backgroundColor: '#ff5e5e', 
+          borderRadius: 8, 
+          borderWidth: 3, 
+          borderColor: '#2d3436',
+          marginRight: 10,
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+           <View style={{ position: 'absolute', top: '15%', right: '15%', width: '30%', height: '30%', backgroundColor: 'white', borderRadius: 2, borderWidth: 2, borderColor: '#2d3436' }}>
+              <View style={{ position: 'absolute', right: 0, top: 0, width: 2, height: 2, backgroundColor: 'black' }} />
+           </View>
+           <View style={{ position: 'absolute', top: '40%', right: '-25%', width: '35%', height: '35%', backgroundColor: '#fab1a0', borderRadius: 2, borderWidth: 2, borderColor: "#2d3436" }} />
+        </View>
+
+        <Text style={{ 
+          fontSize: 32, 
+          fontWeight: "900", 
+          color: "#2d3436", 
+          letterSpacing: -1,
+          fontStyle: 'italic'
+        }}>
+          MOCKINGBIRD
+        </Text>
+      </View>
+    </Animated.View>
+  );
+};
+
+const StarBadge = ({ stars }: { stars: number }) => {
+  const bob = useSharedValue(0);
+  
+  useEffect(() => {
+    bob.value = withRepeat(withTiming(5, { duration: 1500 }), -1, true);
+  }, []);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: bob.value }, { rotate: '-2deg' }]
+  }));
+
+  return (
+    <Animated.View style={[{ 
+      position: 'absolute', top: 50, right: 20, zIndex: 100 
+    }, style]}>
+      <View style={{ 
+        backgroundColor: 'white', 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        paddingHorizontal: 12, 
+        paddingVertical: 6, 
+        borderRadius: 20, 
+        borderWidth: 3, 
+        borderColor: '#2d3436',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4
+      }}>
+        <Text style={{ color: '#f1c40f', fontSize: 18, fontWeight: '900', marginRight: 5 }}>⭐</Text>
+        <Text style={{ color: '#2d3436', fontSize: 16, fontWeight: '900', fontStyle: 'italic' }}>{stars}</Text>
+      </View>
+    </Animated.View>
+  );
+};
+
 export default function GameScreen() {
   const {
     score, highScore, gameOver, gameRunning, showMenu, leaderboard, activePowerUp, dailyChallenges,
@@ -229,7 +328,7 @@ export default function GameScreen() {
   const menuStyle = useAnimatedStyle(() => ({ transform: [{ translateY: menuFloatingY.value }] }));
 
   useEffect(() => {
-    menuFloatingY.value = withRepeat(withTiming(10, { duration: 1500 }), -1, true);
+    menuFloatingY.value = withRepeat(withTiming(12, { duration: 2000 }), -1, true);
   }, []);
 
   const handlePress = () => {
@@ -239,7 +338,14 @@ export default function GameScreen() {
 
   return (
     <TouchableWithoutFeedback onPressIn={handlePress}>
-      <Animated.View style={[{ flex: 1 }, backgroundStyle]}>
+      <Animated.View style={[{ 
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: GAME_CONFIG.SCREEN_WIDTH,
+        height: GAME_CONFIG.SCREEN_HEIGHT,
+      }, backgroundStyle]}>
+        <StatusBar hidden />
         <ChallengeToast challenge={completedChallenge} />
         
         <CelestialBodies scoreSV={scoreSV} />
@@ -282,13 +388,10 @@ export default function GameScreen() {
 
         {showMenu && (
            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-             <View style={{ position: 'absolute', top: 110, right: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, gap: 8, zIndex: 30 }}>
-                <Text style={{ color: '#f1c40f', fontWeight: '900', fontSize: 18 }}>⭐</Text>
-                <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>{totalStars}</Text>
-             </View>
+             <StarBadge stars={totalStars} />
 
-             <Animated.View style={[{ position: 'absolute', top: '5%', alignSelf: 'center', alignItems: 'center' }, menuStyle]}>
-               <Text style={{ fontSize: 48, fontWeight: "900", color: "white", textShadowColor: 'rgba(0,0,0,0.3)', textShadowRadius: 10 }}>MOCKINGBIRD</Text>
+             <Animated.View style={[{ position: 'absolute', top: '10%', alignSelf: 'center', alignItems: 'center' }, menuStyle]}>
+               <CoolLogo />
                <View style={{ backgroundColor: "#ff5e5e", paddingHorizontal: 40, paddingVertical: 15, borderRadius: 10, borderWidth: 4, borderColor: '#2d3436', marginTop: 40 }}>
                   <Text style={{ fontSize: 24, fontWeight: "900", color: "white" }}>START</Text>
                </View>
@@ -318,21 +421,64 @@ export default function GameScreen() {
         )}
 
         {gameOver && (
-          <View style={{ position: "absolute", top: "25%", alignSelf: "center", alignItems: "center", backgroundColor: "white", padding: 30, borderRadius: 10, width: '80%', borderWidth: 4, borderColor: '#566573', elevation: 10 }}>
-            <Text style={{ fontSize: 28, fontWeight: "bold", color: "#566573" }}>GAME OVER</Text>
-            <View style={{ marginVertical: 20, alignItems: 'center' }}>
-               <Text style={{ fontSize: 40, fontWeight: "bold", color: "#2c3e50" }}>{score}</Text>
-               <Text style={{ fontSize: 14, color: "#95a5a6", marginTop: 5 }}>BEST: {highScore}</Text>
+          <View style={{ 
+            position: "absolute", 
+            top: "25%", 
+            alignSelf: "center", 
+            alignItems: "center", 
+            backgroundColor: "white", 
+            paddingVertical: 35,
+            paddingHorizontal: 40, 
+            borderRadius: 35,
+            width: '85%', 
+            borderWidth: 6, 
+            borderColor: '#2d3436',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 12 },
+            shadowOpacity: 0.4,
+            shadowRadius: 15,
+            zIndex: 1000
+          }}>
+            <Text style={{ fontSize: 32, fontWeight: "900", color: "#2d3436", fontStyle: 'italic', letterSpacing: 1 }}>GAME OVER</Text>
+            
+            <View style={{ marginVertical: 30, alignItems: 'center' }}>
+               <Text style={{ fontSize: 14, color: "#2d3436", fontWeight: '900', opacity: 0.5, letterSpacing: 2 }}>SCORE</Text>
+               <Text style={{ fontSize: 72, fontWeight: "900", color: "#ff5e5e", fontStyle: 'italic', marginTop: -5, textShadowColor: 'rgba(0,0,0,0.1)', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 1 }}>{score}</Text>
+               <View style={{ backgroundColor: '#f1c40f', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 12, marginTop: 15, borderWidth: 3, borderColor: '#2d3436' }}>
+                  <Text style={{ fontSize: 14, color: "#2d3436", fontWeight: '900', fontStyle: 'italic' }}>BEST: {highScore}</Text>
+               </View>
             </View>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+
+            <View style={{ flexDirection: 'row', gap: 15, justifyContent: 'center', width: '100%' }}>
               <TouchableWithoutFeedback onPress={resetGame}>
-                <View style={{ backgroundColor: "#e67e22", paddingHorizontal: 25, paddingVertical: 12, borderRadius: 4, borderWidth: 3, borderColor: '#566573' }}>
-                  <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>RESTART</Text>
+                <View style={{ 
+                  flex: 1,
+                  backgroundColor: "#ff5e5e", 
+                  paddingVertical: 15, 
+                  borderRadius: 18, 
+                  borderWidth: 3, 
+                  borderColor: '#2d3436',
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.2,
+                  maxWidth: 130
+                }}>
+                  <Text style={{ fontSize: 15, fontWeight: "900", color: "white", fontStyle: 'italic' }}>RESTART</Text>
                 </View>
               </TouchableWithoutFeedback>
               <TouchableWithoutFeedback onPress={returnToMenu}>
-                <View style={{ backgroundColor: "#3498db", paddingHorizontal: 25, paddingVertical: 12, borderRadius: 4, borderWidth: 3, borderColor: '#566573' }}>
-                  <Text style={{ fontSize: 18, fontWeight: "bold", color: "white" }}>MENU</Text>
+                <View style={{ 
+                  flex: 1,
+                  backgroundColor: "white", 
+                  paddingVertical: 15, 
+                  borderRadius: 18, 
+                  borderWidth: 3, 
+                  borderColor: '#2d3436',
+                  alignItems: 'center',
+                  maxWidth: 130
+                }}>
+                  <Text style={{ fontSize: 15, fontWeight: "900", color: "#2d3436", fontStyle: 'italic' }}>MENU</Text>
                 </View>
               </TouchableWithoutFeedback>
             </View>

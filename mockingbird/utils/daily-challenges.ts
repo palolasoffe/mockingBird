@@ -18,16 +18,16 @@ export interface DailyChallengeData {
   newlyCompleted?: DailyChallenge | null;
 }
 
-const STORAGE_KEY = 'DAILY_CHALLENGES_V2';
+const STORAGE_KEY = 'DAILY_CHALLENGES_V5';
 
 export const generateDailyChallenges = (dateString: string): DailyChallenge[] => {
   const seed = dateString.split('-').reduce((acc, part) => acc + parseInt(part), 0);
 
   const challengeTemplates = [
-    { type: 'score' as const, title: 'Pistehai', description: 'Kerää yhteensä {target} pistettä', targets: [50, 100, 150], baseReward: 50 },
-    { type: 'pipes' as const, title: 'Putkimestari', description: 'Ohita yhteensä {target} putkea', targets: [30, 60, 90], baseReward: 60 },
-    { type: 'powerups' as const, title: 'Voimankerääjä', description: 'Kerää yhteensä {target} voima-palloa', targets: [5, 10, 15], baseReward: 75 },
-    { type: 'survival' as const, title: 'Selviytyjä', description: 'Selviydy yhteensä {target} sekuntia', targets: [120, 240, 300], baseReward: 100 }
+    { type: 'score' as const, title: 'Score Shark', description: 'Collect a total of {target} points', targets: [50, 100, 150], baseReward: 50 },
+    { type: 'pipes' as const, title: 'Pipe Master', description: 'Pass through a total of {target} pipes', targets: [30, 60, 90], baseReward: 60 },
+    { type: 'powerups' as const, title: 'Power Collector', description: 'Collect a total of {target} power-ups', targets: [5, 10, 15], baseReward: 75 },
+    { type: 'survival' as const, title: 'Survivor', description: 'Survive for a total of {target} seconds', targets: [120, 240, 300], baseReward: 100 }
   ];
 
   const selectedIndices = [
@@ -101,10 +101,6 @@ export const saveDailyChallenges = async (data: DailyChallengeData): Promise<voi
   }
 };
 
-/**
- * Updates multiple challenge types at once to prevent race conditions.
- * @param updates Map of challenge type to increment amount
- */
 export const updateMultipleChallenges = async (
   updates: Partial<Record<DailyChallenge['type'], number>>
 ): Promise<DailyChallengeData> => {
@@ -114,7 +110,7 @@ export const updateMultipleChallenges = async (
 
   data.challenges.forEach(challenge => {
     const increment = updates[challenge.type];
-    
+
     if (increment !== undefined && increment > 0 && !challenge.completed) {
       const oldProgress = challenge.progress;
       challenge.progress = Math.min(
@@ -127,7 +123,7 @@ export const updateMultipleChallenges = async (
         newlyCompleted = challenge;
       }
     }
-    
+
     if (challenge.completed) {
       completedCount++;
     }
@@ -139,7 +135,6 @@ export const updateMultipleChallenges = async (
   return data;
 };
 
-// Keep old for backward compatibility if needed, but internally it uses the new one
 export const updateChallengeProgress = async (
   type: DailyChallenge['type'],
   increment: number
