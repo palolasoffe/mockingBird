@@ -18,7 +18,7 @@ export interface DailyChallengeData {
   newlyCompleted?: DailyChallenge | null;
 }
 
-const STORAGE_KEY = 'DAILY_CHALLENGES_V5';
+const STORAGE_KEY = 'DAILY_CHALLENGES_V7';
 
 export const generateDailyChallenges = (dateString: string): DailyChallenge[] => {
   const seed = dateString.split('-').reduce((acc, part) => acc + parseInt(part), 0);

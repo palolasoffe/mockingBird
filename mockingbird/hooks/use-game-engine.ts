@@ -390,12 +390,15 @@ export const useGameEngine = () => {
 
         jumpPool.current = jPool.map(p => p.sound);
         coinPool.current = cPool.map(p => p.sound);
+        
+        // Lower volume for coin sounds
+        await Promise.all(coinPool.current.map(s => s.setVolumeAsync(0.3)));
 
         const { sound: crSound } = await Audio.Sound.createAsync(require("@/assets/audio/crash.mp3"));
         const { sound: pSound } = await Audio.Sound.createAsync(require("@/assets/audio/coin.mp3"));
         
         powerUpSound.current = pSound; 
-        await pSound.setVolumeAsync(0.4);
+        await pSound.setVolumeAsync(0.3);
         crashSound.current = crSound;
         console.log("Sound effects loaded");
 
