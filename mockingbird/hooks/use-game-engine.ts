@@ -2,7 +2,6 @@ import { GAME_CONFIG } from "@/constants/game-config";
 import { DailyChallengeData, loadDailyChallenges, updateChallengeProgress } from "@/utils/daily-challenges";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
-import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   runOnJS,
@@ -32,9 +31,12 @@ export const useGameEngine = () => {
   const pipesPassed = useRef(0);
   const gameStartTime = useRef<number | null>(null);
 
-  // Sound Refs
-  const jumpSound = useRef<Audio.Sound | null>(null);
-  const coinSound = useRef<Audio.Sound | null>(null);
+  // Sound Pools (for polyphony)
+  const jumpPool = useRef<Audio.Sound[]>([]);
+  const coinPool = useRef<Audio.Sound[]>([]);
+  const jumpIndex = useRef(0);
+  const coinIndex = useRef(0);
+  
   const crashSound = useRef<Audio.Sound | null>(null);
   const powerUpSound = useRef<Audio.Sound | null>(null);
 
@@ -78,20 +80,22 @@ export const useGameEngine = () => {
   const isDead = useSharedValue(false);
 
   // UTILITY FUNCTIONS
-  const triggerHaptic = (type: 'light' | 'medium' | 'heavy' | 'success' | 'error') => {
-    switch(type) {
-      case 'light': Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); break;
-      case 'medium': Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); break;
-      case 'heavy': Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); break;
-      case 'success': Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); break;
-      case 'error': Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); break;
+  const playFromPool = (pool: React.MutableRefObject<Audio.Sound[]>, indexRef: React.MutableRefObject<number>) => {
+    const sound = pool.current[indexRef.current];
+    if (sound) {
+      sound.replayAsync().catch(e => console.log("Error playing pool sound", e));
+      indexRef.current = (indexRef.current + 1) % pool.current.length;
     }
   };
 
-  const playSound = async (soundRef: React.MutableRefObject<Audio.Sound | null>) => {
-    try { if (soundRef.current) await soundRef.current.replayAsync(); } 
-    catch (e) { console.log("Error playing sound", e); }
+  const playSound = (soundRef: React.MutableRefObject<Audio.Sound | null>) => {
+    if (soundRef.current) {
+      soundRef.current.replayAsync().catch(e => console.log("Error playing sound", e));
+    }
   };
+
+  const playPowerUpSound = () => playSound(powerUpSound);
+  const playCrashSound = () => playSound(crashSound);
 
   const setPowerUpTimer = (type: PowerUpType) => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -105,8 +109,7 @@ export const useGameEngine = () => {
   const activatePowerUp = (type: PowerUpType) => {
     "worklet";
     runOnJS(setActivePowerUp)(type);
-    runOnJS(playSound)(powerUpSound);
-    runOnJS(triggerHaptic)('success');
+    runOnJS(playPowerUpSound)();
     if (type === 'shield') isInvincible.value = true;
     else if (type === 'shrink') birdSize.value = withTiming(GAME_CONFIG.BIRD_SIZE * 0.6);
     runOnJS(setPowerUpTimer)(type);
@@ -155,7 +158,7 @@ export const useGameEngine = () => {
     }
   }, [gameRunning, gameOver, score, updateMusic]);
 
-  const updateChallengeAsync = useCallback(async (type: DailyChallenge['type'], progress: number) => {
+  const updateChallengeAsync = useCallback(async (type: 'score' | 'powerups' | 'pipes' | 'survival', progress: number) => {
     try {
       await updateChallengeProgress(type, progress);
     } catch (error) {
@@ -166,7 +169,7 @@ export const useGameEngine = () => {
   const handleGameOver = useCallback(async (finalScore: number) => {
     setGameOver(true); setGameRunning(false); isPlaying.value = false; isDead.value = true;
     if (timerRef.current) clearTimeout(timerRef.current);
-    triggerHaptic('error'); playSound(crashSound);
+    playCrashSound();
     
     // Update survival challenge
     if (gameStartTime.current) {
@@ -206,8 +209,7 @@ export const useGameEngine = () => {
       updateChallengeAsync('pipes', pipesPassed.current);
       return newScore;
     }); 
-    triggerHaptic('success'); 
-    playSound(coinSound); 
+    playFromPool(coinPool, coinIndex); 
   }, [updateChallengeAsync]);
 
   const updateAndSyncChallenges = async (
@@ -281,7 +283,6 @@ export const useGameEngine = () => {
              isInvincible.value = false;
              mercyFrames.value = 60;
              runOnJS(setActivePowerUp)('none');
-             runOnJS(triggerHaptic)('heavy');
           } else if (mercyFrames.value <= 0) {
             runOnJS(handleGameOver)(score);
           }
@@ -298,6 +299,15 @@ export const useGameEngine = () => {
     birdY.value = GAME_CONFIG.INITIAL_BIRD_Y; birdVelocity.value = 0; birdSize.value = GAME_CONFIG.BIRD_SIZE;
     isInvincible.value = false; mercyFrames.value = 0; setActivePowerUp('none'); setScore(0); powerUpX.value = -200;
     if (timerRef.current) clearTimeout(timerRef.current);
+    
+    // Reset pipes
+    pipe1X.value = GAME_CONFIG.PIPE_SPAWN_X; pipe1GapY.value = 200; pipe1Scored.value = false;
+    pipe2X.value = GAME_CONFIG.PIPE_SPAWN_X + GAME_CONFIG.PIPE_SPACING; pipe2GapY.value = 300; pipe2Scored.value = false;
+    pipe3X.value = GAME_CONFIG.PIPE_SPAWN_X + GAME_CONFIG.PIPE_SPACING * 2; pipe3GapY.value = 250; pipe3Scored.value = false;
+    
+    // Reset environment
+    groundX.value = 0; cloudX.value = 0;
+    
     // Reset challenge tracking
     powerUpsCollected.current = 0;
     pipesPassed.current = 0;
@@ -311,9 +321,8 @@ export const useGameEngine = () => {
       isPlaying.value = true; 
       setGameRunning(true); 
       gameStartTime.current = Date.now();
-      triggerHaptic('medium'); 
     }
-    birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH; triggerHaptic('light'); playSound(jumpSound);
+    birdVelocity.value = GAME_CONFIG.FLAP_STRENGTH; playFromPool(jumpPool, jumpIndex);
   }, [gameOver, gameRunning, showMenu, startFromMenu]);
 
   const resetGame = useCallback(() => {
@@ -338,8 +347,8 @@ export const useGameEngine = () => {
           playsInSilentModeIOS: true,
           staysActiveInBackground: false,
           shouldRouteAudioToReceiverIfInverted: false,
-          interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-          interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+          interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
         });
         console.log("Audio mode set successfully");
       } catch (error) {
@@ -362,15 +371,25 @@ export const useGameEngine = () => {
       // Load Sounds (Critical)
       try {
         console.log("Loading sound effects...");
-        const { sound: jSound } = await Audio.Sound.createAsync(require("@/assets/audio/jump.mp3"));
-        const { sound: cSound } = await Audio.Sound.createAsync(require("@/assets/audio/coin.mp3"));
+        // Pre-load pools
+        const jPool = await Promise.all([
+          Audio.Sound.createAsync(require("@/assets/audio/jump.mp3")),
+          Audio.Sound.createAsync(require("@/assets/audio/jump.mp3")),
+          Audio.Sound.createAsync(require("@/assets/audio/jump.mp3")),
+        ]);
+        const cPool = await Promise.all([
+          Audio.Sound.createAsync(require("@/assets/audio/coin.mp3")),
+          Audio.Sound.createAsync(require("@/assets/audio/coin.mp3")),
+        ]);
+
+        jumpPool.current = jPool.map(p => p.sound);
+        coinPool.current = cPool.map(p => p.sound);
+
         const { sound: crSound } = await Audio.Sound.createAsync(require("@/assets/audio/crash.mp3"));
+        const { sound: pSound } = await Audio.Sound.createAsync(require("@/assets/audio/coin.mp3"));
         
-        powerUpSound.current = cSound; 
-        await cSound.setVolumeAsync(0.4);
-        
-        jumpSound.current = jSound; 
-        coinSound.current = cSound; 
+        powerUpSound.current = pSound; 
+        await pSound.setVolumeAsync(0.4);
         crashSound.current = crSound;
         console.log("Sound effects loaded");
 
@@ -392,9 +411,10 @@ export const useGameEngine = () => {
     return () => {
       const cleanup = async () => {
         try {
-          await jumpSound.current?.unloadAsync(); 
-          await coinSound.current?.unloadAsync(); 
+          await Promise.all(jumpPool.current.map(s => s.unloadAsync()));
+          await Promise.all(coinPool.current.map(s => s.unloadAsync()));
           await crashSound.current?.unloadAsync();
+          await powerUpSound.current?.unloadAsync();
           for (const t of Object.values(musicTracks.current)) {
             await t?.unloadAsync();
           }
