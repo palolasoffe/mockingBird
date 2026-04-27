@@ -18,7 +18,6 @@ export interface DailyChallengeData {
   newlyCompleted?: DailyChallenge | null;
 }
 
-// STORAGE_KEY changed to V2 to force progress reset for the user
 const STORAGE_KEY = 'DAILY_CHALLENGES_V2';
 
 export const generateDailyChallenges = (dateString: string): DailyChallenge[] => {
@@ -31,7 +30,6 @@ export const generateDailyChallenges = (dateString: string): DailyChallenge[] =>
     { type: 'survival' as const, title: 'Selviytyjä', description: 'Selviydy yhteensä {target} sekuntia', targets: [120, 240, 300], baseReward: 100 }
   ];
 
-  // Pick 3 unique templates
   const selectedIndices = [
     (seed + 0) % challengeTemplates.length,
     (seed + 1) % challengeTemplates.length,
@@ -103,16 +101,21 @@ export const saveDailyChallenges = async (data: DailyChallengeData): Promise<voi
   }
 };
 
-export const updateChallengeProgress = async (
-  type: DailyChallenge['type'],
-  increment: number
+/**
+ * Updates multiple challenge types at once to prevent race conditions.
+ * @param updates Map of challenge type to increment amount
+ */
+export const updateMultipleChallenges = async (
+  updates: Partial<Record<DailyChallenge['type'], number>>
 ): Promise<DailyChallengeData> => {
   const data = await loadDailyChallenges();
   let newlyCompleted: DailyChallenge | null = null;
   let completedCount = 0;
 
   data.challenges.forEach(challenge => {
-    if (challenge.type === type && !challenge.completed) {
+    const increment = updates[challenge.type];
+    
+    if (increment !== undefined && increment > 0 && !challenge.completed) {
       const oldProgress = challenge.progress;
       challenge.progress = Math.min(
         challenge.progress + increment,
@@ -124,6 +127,7 @@ export const updateChallengeProgress = async (
         newlyCompleted = challenge;
       }
     }
+    
     if (challenge.completed) {
       completedCount++;
     }
@@ -133,4 +137,12 @@ export const updateChallengeProgress = async (
   data.newlyCompleted = newlyCompleted;
   await saveDailyChallenges(data);
   return data;
+};
+
+// Keep old for backward compatibility if needed, but internally it uses the new one
+export const updateChallengeProgress = async (
+  type: DailyChallenge['type'],
+  increment: number
+): Promise<DailyChallengeData> => {
+  return updateMultipleChallenges({ [type]: increment });
 };

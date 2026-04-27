@@ -282,7 +282,7 @@ export default function GameScreen() {
 
         {showMenu && (
            <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
-             <View style={{ position: 'absolute', top: 50, right: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, gap: 8 }}>
+             <View style={{ position: 'absolute', top: 110, right: 20, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20, gap: 8, zIndex: 30 }}>
                 <Text style={{ color: '#f1c40f', fontWeight: '900', fontSize: 18 }}>⭐</Text>
                 <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>{totalStars}</Text>
              </View>

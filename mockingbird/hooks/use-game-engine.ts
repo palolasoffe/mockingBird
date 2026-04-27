@@ -1,5 +1,5 @@
 import { GAME_CONFIG } from "@/constants/game-config";
-import { DailyChallenge, DailyChallengeData, loadDailyChallenges, updateChallengeProgress } from "@/utils/daily-challenges";
+import { DailyChallenge, DailyChallengeData, loadDailyChallenges, updateMultipleChallenges } from "@/utils/daily-challenges";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -160,9 +160,9 @@ export const useGameEngine = () => {
     }
   }, [gameRunning, gameOver, score, updateMusic]);
 
-  const updateChallengeAsync = useCallback(async (type: 'score' | 'powerups' | 'pipes' | 'survival', progress: number) => {
+  const syncChallenges = useCallback(async (sessionData: Partial<Record<DailyChallenge['type'], number>>) => {
     try {
-      const result = await updateChallengeProgress(type, progress);
+      const result = await updateMultipleChallenges(sessionData);
       if (result.newlyCompleted) {
         setCompletedChallenge(result.newlyCompleted);
         setTotalStars(prev => {
@@ -174,7 +174,7 @@ export const useGameEngine = () => {
       }
       setDailyChallenges(result);
     } catch (error) {
-      console.warn('Failed to update challenge progress:', error);
+      console.warn('Failed to sync challenges:', error);
     }
   }, []);
 
@@ -183,18 +183,18 @@ export const useGameEngine = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     playCrashSound();
     
-    // SEQUENTIAL UPDATES to prevent AsyncStorage race conditions
-    await updateChallengeAsync('pipes', pipesPassed.value);
-    await updateChallengeAsync('score', finalScore);
+    // Calculate survival time
+    const survivalTime = gameStartTime.current 
+      ? Math.floor((Date.now() - gameStartTime.current) / 1000) 
+      : 0;
 
-    if (gameStartTime.current) {
-      const survivalTime = Math.floor((Date.now() - gameStartTime.current) / 1000);
-      await updateChallengeAsync('survival', survivalTime);
-    }
-
-    if (powerUpsCollected.value > 0) {
-      await updateChallengeAsync('powerups', powerUpsCollected.value);
-    }
+    // SYNC ALL CHALLENGES IN ONE ATOMIC OPERATION
+    await syncChallenges({
+      pipes: pipesPassed.value,
+      score: finalScore,
+      survival: survivalTime,
+      powerups: powerUpsCollected.value
+    });
     
     const updateStorage = async () => {
       try {
@@ -212,7 +212,7 @@ export const useGameEngine = () => {
       }
     };
     updateStorage();
-  }, [highScore, updateChallengeAsync]);
+  }, [highScore, syncChallenges]);
 
   const handleScoreUpdate = useCallback(() => { 
     setScore(s => s + 1);
@@ -248,7 +248,7 @@ export const useGameEngine = () => {
       const withinX = GAME_CONFIG.BIRD_X + birdSize.value > powerUpX.value && GAME_CONFIG.BIRD_X < powerUpX.value + GAME_CONFIG.POWERUP_SIZE;
       const withinY = birdY.value + birdSize.value > powerUpY.value && birdY.value < powerUpY.value + GAME_CONFIG.POWERUP_SIZE;
       if (withinX && withinY) { 
-        powerUpsCollected.value++; // Safe to modify sharedValue in worklet
+        powerUpsCollected.value++; 
         activatePowerUp(currentPowerUpType.value); 
         powerUpX.value = -200; 
       }
@@ -271,7 +271,7 @@ export const useGameEngine = () => {
       }
       if (!pipe.scored.value && pipe.x.value + GAME_CONFIG.PIPE_WIDTH < GAME_CONFIG.BIRD_X) {
         pipe.scored.value = true; 
-        pipesPassed.value++; // Increment pipe count in worklet
+        pipesPassed.value++; 
         runOnJS(handleScoreUpdate)();
       }
       const birdRight = GAME_CONFIG.BIRD_X + birdSize.value;
